@@ -1,0 +1,1 @@
+PATH=..\deps\ffmpeg\bin\x64;..\deps\sdl2\bin\x64;$(PATH)
