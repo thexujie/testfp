@@ -209,3 +209,4 @@ FakesAssemblies/
 *.user.props
 
 deps/
+temp/
