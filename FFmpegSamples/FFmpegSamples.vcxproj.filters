@@ -7,5 +7,6 @@
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="decode_audio.cpp" />
+    <ClCompile Include="resampling_audio.cpp" />
   </ItemGroup>
 </Project>
