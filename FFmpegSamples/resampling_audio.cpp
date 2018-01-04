@@ -77,7 +77,7 @@ static void fill_samples(double *dst, int nb_samples, int nb_channels, int sampl
     }
 }
 
-int main(int argc, char **argv)
+int resampling_audio_main(int argc, char **argv)
 {
     int64_t src_ch_layout = AV_CH_LAYOUT_STEREO, dst_ch_layout = AV_CH_LAYOUT_SURROUND;
     int src_rate = 48000, dst_rate = 44100;
