@@ -25,6 +25,11 @@ void AudioPlayer::doPlay()
     initSDL();
 }
 
+void AudioPlayer::doMix()
+{
+    
+}
+
 void AudioPlayer::initSDL()
 {
 

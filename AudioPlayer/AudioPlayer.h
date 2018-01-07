@@ -10,6 +10,7 @@ public:
 
 private:
     void doPlay();
+    void doMix();
     void initSDL();
     static unsigned __stdcall playThread(void * args);
 private:
