@@ -26,20 +26,20 @@ struct audio_context
     struct AVCodec * avcodec;
 
     int stream_index;
-    enum AVSampleFormat out_sample_fmt; //AVSampleFormat
-    int out_sample_rate;
-    int out_channels;
     int out_nb_samples_preffer;
 };
 
-const int MAX_BUFFER = 2;
+//不能小于 3
+const int MAX_BUFFER = 5;
 
 struct audio_buffer
 {
+    int index;
     byte * data;
     int cap;
     int len;
     int pos;
+    int samples;
 };
 
 enum audio_play_state
@@ -59,6 +59,7 @@ struct sdl_user_data
     audio_buffer buffers[MAX_BUFFER];
 
     struct AVPacket * avpacket;
+    int buffer_index;
     int packet_index;
     int frame_index;
 };
@@ -74,7 +75,7 @@ public:
 private:
     int play(std::string filename, audio_context & context);
     int doPlay();
-    void doMix();
+    void doMix(Uint8 * stream, int len);
     int initSDL();
 
     static unsigned __stdcall playThread(void * args);
@@ -85,10 +86,15 @@ private:
     std::vector<std::string> m_playLists;
 
     DwCriticalSection m_cs;
+    DwCriticalSection m_csPlay;
 
+    AVSampleFormat m_outSampleFormat;
+    int m_outSampleRate;
+    int m_outBufferSamples;
+    int m_outChannels;
     //sdl
-    SDL_AudioDeviceID m_audioDid;
-    SDL_AudioSpec m_audioSpecObtained;
+    SDL_AudioDeviceID m_sdlDeviceId;
+    SDL_AudioFormat m_sdlSampleFormat;
 
     std::vector<sdl_user_data> sdl_datas;
 };
