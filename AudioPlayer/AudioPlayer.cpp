@@ -3,7 +3,7 @@
 #include <process.h>
 #include "avobject.h"
 
-static void audio_context_free(audio_context * ptr)
+static void audio_context_uninit(audio_context * ptr)
 {
     if(!ptr)
         return;
@@ -13,22 +13,18 @@ static void audio_context_free(audio_context * ptr)
     swr_free(&ptr->swr);
 }
 
-static void sdl_user_data_free(sdl_user_data * ptr)
+static void sdl_user_data_uninit(audio_play_conntext & context)
 {
-    if(!ptr)
-        return;
-
-    audio_context_free(&ptr->context);
-    av_free(ptr->avpacket);
+    audio_context_uninit(&context.context);
+    av_free(context.avpacket);
     for(int cnt = 0; cnt < MAX_BUFFER; ++cnt)
     {
-        if(ptr->buffers[cnt].data)
+        if(context.buffers[cnt].data)
         {
-            av_free(ptr->buffers[cnt].data);
-            ptr->buffers[cnt].data = 0;
+            av_free(context.buffers[cnt].data);
+			context.buffers[cnt].data = 0;
         }
     }
-    free(ptr);
 }
 
 AudioPlayer::AudioPlayer(): m_hPlayThread(NULL), m_endPlayThread(0), m_sdlDeviceId(0),
@@ -46,7 +42,6 @@ m_outSampleRate(0), m_outBufferSamples(0)
     m_outSampleFormat = AV_SAMPLE_FMT_S16;
     m_outChannels = av_get_channel_layout_nb_channels(AV_CH_LAYOUT_STEREO);
     m_sdlSampleFormat = AUDIO_S16LSB;
-    av_register_all();
 }
 
 AudioPlayer::~AudioPlayer()
@@ -54,14 +49,20 @@ AudioPlayer::~AudioPlayer()
 
 }
 
+int AudioPlayer::init()
+{
+    av_register_all();
+    return APErrorNone;
+}
+
 int AudioPlayer::playAudio(const char * filename)
 {
     if(!filename)
         return APErrorInvalidParameters;
 
-    m_cs.lock();
-    m_playLists.emplace_back(filename);
-    m_cs.unlock();
+    m_csPlayList.lock();
+    m_playList.emplace_back(filename);
+    m_csPlayList.unlock();
 
     if(!m_hPlayThread)
         m_hPlayThread = (HANDLE)_beginthreadex(NULL, 0, playThread, (void *)this, 0, NULL);
@@ -69,7 +70,48 @@ int AudioPlayer::playAudio(const char * filename)
     return APErrorNone;
 }
 
-int AudioPlayer::play(std::string filename, audio_context & context)
+int AudioPlayer::initSDL()
+{
+    //Init
+    if(SDL_Init(SDL_INIT_AUDIO))
+    {
+        printf("Could not initialize SDL - %s\n", SDL_GetError());
+        return -1;
+    }
+
+    //SDL_AudioSpec
+    SDL_AudioSpec desired_spec = {};
+    SDL_AudioSpec obtained_spec = {};
+    desired_spec.freq = 44100;
+    desired_spec.format = AUDIO_S16LSB;
+    desired_spec.channels = m_outChannels;
+    desired_spec.silence = 0;
+    desired_spec.samples = /*out_nb_samples*/4096;
+    desired_spec.callback = sdlMix;
+    desired_spec.userdata = (void *)this;
+
+    //adid = 1;
+    //if(SDL_OpenAudio(&desired_spec, 0) < 0)
+    //{
+    //    printf("can't open audio.\n");
+    //    return -1;
+    //}
+
+    m_sdlDeviceId = SDL_OpenAudioDevice(NULL, 0, &desired_spec, &obtained_spec, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+    if(!m_sdlDeviceId)
+    {
+        printf("can't open audio.\n");
+        return -1;
+    }
+
+    m_outSampleRate = obtained_spec.freq;
+    m_outBufferSamples = desired_spec.samples;
+    m_outChannels = obtained_spec.channels;
+
+    return 0;
+}
+
+int AudioPlayer::generate(std::string filename, audio_context & context)
 {
     if(!m_outSampleRate)
         return APErrorNotReady;
@@ -181,35 +223,33 @@ int AudioPlayer::doPlay()
 
     avobject3<AVFrame, av_frame_free> avframe(av_frame_alloc());
 
-    std::vector<std::string> playLists;
     int index = 0;
     while(!m_endPlayThread)
     {
-        playLists.clear();
-        //一次只播放 1 个
-        if(m_cs.tryLock())
+        std::vector<std::string> fileList;
+        if(m_csPlayList.tryLock())
         {
-            if(!m_playLists.empty())
+            if(!m_playList.empty())
             {
-                playLists.swap(m_playLists);
+                fileList.swap(m_playList);
             }
-            m_cs.unlock();
+            m_csPlayList.unlock();
         }
 
-        m_csPlay.lock();
+        m_csPlayMix.lock();
         //加入播放列表
-        for(size_t cnt = 0; cnt < playLists.size(); ++cnt)
+        for(size_t cnt = 0; cnt < fileList.size(); ++cnt)
         {
             audio_context context = {};
-            int err = play(playLists[cnt], context);
+            int err = generate(fileList[cnt], context);
             if(err)
                 continue;
 
-            sdl_user_data udata = {};
+            audio_play_conntext udata = {};
             udata.context = context;
             sdl_datas.push_back(udata);
         }
-        m_csPlay.unlock();
+        m_csPlayMix.unlock();
 
         if(sdl_datas.empty())
         {
@@ -224,7 +264,7 @@ int AudioPlayer::doPlay()
 
         for(size_t cnt = 0; cnt < sdl_datas.size(); ++cnt)
         {
-            sdl_user_data & udata = sdl_datas[cnt];
+            audio_play_conntext & udata = sdl_datas[cnt];
             while(udata.decodeIndex - udata.playIndex < MAX_BUFFER - 1 && udata.state == audio_play_state_ok)
             {
                 if(!udata.avpacket)
@@ -240,7 +280,7 @@ int AudioPlayer::doPlay()
                         if(averr == AVERROR_EOF)
                         {
                             //没了
-                            udata.state = audio_play_state_end;
+                            udata.state = audio_play_state_decode_end;
                             break;
                         }
 
@@ -370,56 +410,70 @@ int AudioPlayer::doPlay()
                     {
                         ++udata.buffer_index;
                         InterlockedAdd(&udata.decodeIndex, 1);
+                        if(udata.presenter_start == 0)
+                            udata.presenter_start = timeGetTime();
                         break;
                     }
                 }
             }
-
-            SDL_Delay(1);
         }
 
-        //处理结束信息
-        //SDL_Event event;
-        //while(SDL_PollEvent(&event) > 0)
-        //{
-        //    //if(event.type == SDL_QUIT)
-        //    //{
-        //    //}
-        //    if(event.type == SDL_AUDIODEVICEREMOVED)
-        //    {
-        //        SDL_AudioDeviceID adid = event.adevice.which;
-        //        std::vector<sdl_user_data *>::iterator iter = sdl_datas.begin();
-        //        while(iter != sdl_datas.end())
-        //        {
-        //            sdl_user_data * pudata = *iter;
-        //            if(!pudata)
-        //            {
-        //                iter = sdl_datas.erase(iter);
-        //                continue;
-        //            }
 
-        //            ++iter;
-        //        }
-        //    }
-        //}
+        //设备关闭
+        SDL_Event event;
+        while(SDL_PollEvent(&event) > 0)
+        {
+            if(event.type == SDL_AUDIODEVICEREMOVED || event.type == SDL_QUIT)
+            {
+                SDL_AudioDeviceID adid = event.adevice.which;
+                if(adid == m_sdlDeviceId)
+                {
+                    m_csPlayMix.lock();
+                    std::vector<audio_play_conntext>::iterator iter = sdl_datas.begin();
+                    while(iter != sdl_datas.end())
+                    {
+                        audio_play_conntext & udata = *iter;
+                        sdl_user_data_uninit(udata);
+                        iter = sdl_datas.erase(iter);
+                    }
+                    m_csPlayMix.unlock();
+                }
+            }
+        }
 
         //清理出错的、已结束的
-        //m_csPlay.lock();
-        //std::vector<sdl_user_data>::iterator iter = sdl_datas.begin();
-        //while(iter != sdl_datas.end())
-        //{
-        //    sdl_user_data & udata = *iter;
-        //    if(udata.state != audio_play_state_ok)
-        //    {
-        //        SDL_Delay(udata.avpacket->duration / 1000);
-        //        sdl_user_data_free(&udata);
-        //        iter = sdl_datas.erase(iter);
-        //        continue;
-        //    }
-        //    ++iter;
-        //}
-        //m_csPlay.unlock();
-        SDL_Delay(0);
+        long long tmNow = timeGetTime();
+        m_csPlayMix.lock();
+        std::vector<audio_play_conntext>::iterator iter = sdl_datas.begin();
+        while(iter != sdl_datas.end())
+        {
+            audio_play_conntext & udata = *iter;
+            //出错
+            if(udata.state == audio_play_state_error)
+            {
+                sdl_user_data_uninit(udata);
+                iter = sdl_datas.erase(iter);
+                continue;
+            }
+            //解码完毕
+            else if(udata.state == audio_play_state_decode_end)
+            {
+                long long duration = udata.context.avformatContext->duration / (AV_TIME_BASE / 1000);
+                if(tmNow - udata.presenter_start >= duration)
+                {
+                    sdl_user_data_uninit(udata);
+                    iter = sdl_datas.erase(iter);
+                    continue;
+                }
+            }
+            else
+            {
+
+            }
+            ++iter;
+        }
+        m_csPlayMix.unlock();
+        SDL_Delay(1);
     }
 
     SDL_CloseAudioDevice(m_sdlDeviceId);
@@ -430,10 +484,10 @@ void AudioPlayer::doMix(Uint8 * stream, int len)
 {
     SDL_memset(stream, 0, len);
 
-    m_csPlay.lock();
+    m_csPlayMix.lock();
     for(size_t cnt = 0; cnt < sdl_datas.size(); ++cnt)
     {
-        sdl_user_data & udata = sdl_datas[cnt];
+        audio_play_conntext & udata = sdl_datas[cnt];
         int nb_buffers = udata.decodeIndex - udata.playIndex;
         if(nb_buffers < 1)
             continue;
@@ -471,52 +525,12 @@ void AudioPlayer::doMix(Uint8 * stream, int len)
                 InterlockedAdd(&udata.playIndex, 1);
         }
     }
-    m_csPlay.unlock();
+    m_csPlayMix.unlock();
 }
 
-int AudioPlayer::initSDL()
-{
-    //Init
-    if(SDL_Init(SDL_INIT_AUDIO))
-    {
-        printf("Could not initialize SDL - %s\n", SDL_GetError());
-        return -1;
-    }
-
-    //SDL_AudioSpec
-    SDL_AudioSpec desired_spec = {};
-    SDL_AudioSpec obtained_spec = {};
-    desired_spec.freq = 44100;
-    desired_spec.format = AUDIO_S16LSB;
-    desired_spec.channels = m_outChannels;
-    desired_spec.silence = 0;
-    desired_spec.samples = /*out_nb_samples*/4096;
-    desired_spec.callback = sdlMix;
-    desired_spec.userdata = (void *)this;
-
-    //adid = 1;
-    //if(SDL_OpenAudio(&desired_spec, 0) < 0)
-    //{
-    //    printf("can't open audio.\n");
-    //    return -1;
-    //}
-
-    m_sdlDeviceId = SDL_OpenAudioDevice(NULL, 0, &desired_spec, &obtained_spec, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-    if(!m_sdlDeviceId)
-    {
-        printf("can't open audio.\n");
-        return -1;
-    }
-
-    m_outSampleRate = obtained_spec.freq;
-    m_outBufferSamples = desired_spec.samples;
-    m_outChannels = obtained_spec.channels;
-
-    return 0;
-}
-    
 unsigned AudioPlayer::playThread(void * args)
 {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
     AudioPlayer * pThis = (AudioPlayer * )args;
     pThis->doPlay();
     return 0;
@@ -524,6 +538,7 @@ unsigned AudioPlayer::playThread(void * args)
 
 void AudioPlayer::sdlMix(void * udata, Uint8 * stream, int len)
 {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
     AudioPlayer * pThis = (AudioPlayer *)udata;
     pThis->doMix(stream, len);
 }
