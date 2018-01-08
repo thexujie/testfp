@@ -104,6 +104,11 @@ int AudioPlayer::initSDL()
         return -1;
     }
 
+    printf("Audio Device: %s\n", SDL_GetAudioDeviceName(0, 0));
+    printf("\tsample rate: %d\n", obtained_spec.freq);
+    printf("\tchannels: %d\n", obtained_spec.channels);
+    printf("\tbuffer samples: %d\n", desired_spec.samples);
+
     m_outSampleRate = obtained_spec.freq;
     m_outBufferSamples = desired_spec.samples;
     m_outChannels = obtained_spec.channels;
@@ -124,6 +129,8 @@ int AudioPlayer::generate(std::string filename, audio_context & context)
     averr = avformat_open_input(&avformatContext, filename.c_str(), NULL, NULL);
     if(averr)
         return APErrorGeneric;
+
+    //av_dump_format(avformatContext, 0, filename.c_str(), false);
 
     if(avformat_find_stream_info(avformatContext, NULL) < 0)
         return APErrorGeneric;
@@ -248,6 +255,21 @@ int AudioPlayer::doPlay()
             audio_play_conntext udata = {};
             udata.context = context;
             sdl_datas.push_back(udata);
+
+            long long dur = context.avformatContext->duration;
+            int min = dur / AV_TIME_BASE / 60;
+            int sec = (dur / AV_TIME_BASE) % 60;
+            int msec = (dur / (AV_TIME_BASE / 100)) % 100;
+
+            printf("Audio: %s, %02d:%02d.%02d, %s(%s), %d channels, %d bits, %d Hz, %lld kbps\n", 
+                udata.context.filename.c_str(), 
+                min, sec, msec,
+                avcodec_get_name(context.avcodecContext->codec_id),
+                av_get_sample_fmt_name(context.avcodecContext->sample_fmt),
+                context.avcodecContext->channels,
+                av_get_bytes_per_sample(context.avcodecContext->sample_fmt) * 8, 
+                context.avcodecContext->sample_rate,
+                context.avcodecContext->bit_rate / 100);
         }
         m_csPlayMix.unlock();
 
@@ -296,7 +318,7 @@ int AudioPlayer::doPlay()
                         if(udata.avpacket->stream_index != udata.context.stream_index)
                             continue;
 
-                        printf("index:%5d\t pts:%lld\t packet size:%d\n", udata.packet_index, udata.avpacket->pts, udata.avpacket->size);
+                        //printf("index:%5d\t pts:%lld\t packet size:%d\n", udata.packet_index, udata.avpacket->pts, udata.avpacket->size);
                         ++udata.packet_index;
 
                         averr = avcodec_send_packet(udata.context.avcodecContext, udata.avpacket);
@@ -375,10 +397,6 @@ int AudioPlayer::doPlay()
                     }
                     else
                     {
-                        //uint8_t * in_buffers[AV_NUM_DATA_POINTERS] = {};
-                        //for(int ich = 0; ich < avframe->channels; ++ich)
-                        //    in_buffers[ich] = avframe->data[ich];
-
                         uint8_t * out_buffer = buffer.data + buffer.len;
                         int nb_samples = swr_convert(udata.context.swr, &out_buffer, (buffer.cap - buffer.len) / unit_size / m_outChannels, (const uint8_t**)avframe->data, avframe->nb_samples);
                         if(nb_samples < 0)
@@ -391,18 +409,6 @@ int AudioPlayer::doPlay()
                         int out_buffer_size = av_samples_get_buffer_size(NULL, m_outChannels, nb_samples, m_outSampleFormat, 1);
                         buffer.len += out_buffer_size;
                         buffer.samples += nb_samples;
-
-        /*                while(true)
-                        {
-                            out_buffer = buffer.data + buffer.len;
-                            averr = swr_convert(udata.context.swr, &out_buffer, (buffer.cap - buffer.len) / unit_size / m_outChannels, NULL, 0);
-                            if(averr <= 0)
-                                break;
-
-                            int out_buffer_size = av_samples_get_buffer_size(NULL, m_outChannels, nb_samples, m_outSampleFormat, 1);
-                            buffer.len += out_buffer_size;
-                            buffer.samples += nb_samples;
-                        }*/
                     }
 
                     //数据量不够，继续

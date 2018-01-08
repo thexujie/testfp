@@ -1,14 +1,14 @@
 #pragma once
 
-class DwCriticalSection
+class CSObject
 {
 public:
-    DwCriticalSection() { InitializeCriticalSection(&m_criticalSection); }
-    ~DwCriticalSection() { DeleteCriticalSection(&m_criticalSection); }
+    CSObject() { InitializeCriticalSection(&m_criticalSection); }
+    ~CSObject() { DeleteCriticalSection(&m_criticalSection); }
 
-    inline void lock()const { EnterCriticalSection((CRITICAL_SECTION*)&m_criticalSection); }
-    inline void unlock()const { LeaveCriticalSection((CRITICAL_SECTION*)&m_criticalSection); }
-    inline bool tryLock()const { return TryEnterCriticalSection((CRITICAL_SECTION*)&m_criticalSection) ? true : false; }
+    void lock()const { EnterCriticalSection((CRITICAL_SECTION*)&m_criticalSection); }
+    void unlock()const { LeaveCriticalSection((CRITICAL_SECTION*)&m_criticalSection); }
+    bool tryLock()const { return TryEnterCriticalSection((CRITICAL_SECTION*)&m_criticalSection) ? true : false; }
 
 private:
     CRITICAL_SECTION m_criticalSection;
@@ -103,8 +103,8 @@ private:
     long m_endPlayThread;
     std::vector<std::string> m_playList;
 
-    DwCriticalSection m_csPlayList;
-    DwCriticalSection m_csPlayMix;
+    CSObject m_csPlayList;
+    CSObject m_csPlayMix;
 
     AVSampleFormat m_outSampleFormat;
     int m_outSampleRate;
