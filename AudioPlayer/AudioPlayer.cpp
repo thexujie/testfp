@@ -3,6 +3,7 @@
 #include <process.h>
 #include "avobject.h"
 
+FILE * flog = 0;
 static void audio_context_uninit(audio_context * ptr)
 {
     if(!ptr)
@@ -42,6 +43,7 @@ m_outSampleRate(0), m_outBufferSamples(0)
     m_outSampleFormat = AV_SAMPLE_FMT_S16;
     m_outChannels = av_get_channel_layout_nb_channels(AV_CH_LAYOUT_STEREO);
     m_sdlSampleFormat = AUDIO_S16LSB;
+    flog = _fsopen("out.txt", "wt", _SH_DENYWR);
 }
 
 AudioPlayer::~AudioPlayer()
@@ -216,7 +218,7 @@ int AudioPlayer::generate(std::string filename, audio_context & context)
 
     context.avcodecParameters = avcodecParameters;
     context.avcodec = avcodec;
-    context.stream_index = stream_index;
+    context.audioStreamIndex = stream_index;
     context.out_nb_samples_preffer = out_nb_samples_preffer;
 
     return APErrorNone;
@@ -281,8 +283,10 @@ int AudioPlayer::doPlay()
             continue;
         }
 
-        if(SDL_GetAudioDeviceStatus(m_sdlDeviceId) != SDL_AUDIO_PLAYING)
-            SDL_PauseAudioDevice(m_sdlDeviceId, SDL_FALSE);
+        //if(SDL_GetAudioDeviceStatus(m_sdlDeviceId) != SDL_AUDIO_PLAYING)
+        //    SDL_PauseAudioDevice(m_sdlDeviceId, SDL_FALSE);
+
+        int unit_size = av_get_bytes_per_sample(m_outSampleFormat);
 
         for(size_t cnt = 0; cnt < sdl_datas.size(); ++cnt)
         {
@@ -290,140 +294,196 @@ int AudioPlayer::doPlay()
             while(udata.decodeIndex - udata.playIndex < MAX_BUFFER - 1 && udata.state == audio_play_state_ok)
             {
                 if(!udata.avpacket)
-                    udata.avpacket = (AVPacket *)av_malloc(sizeof(AVPacket));
+                {
+                    udata.avpacket = av_packet_alloc();
+                    av_init_packet(udata.avpacket);
+                }
 
                 //需要读取一个包
                 while(udata.state == audio_play_state_ok)
                 {
-                    if(udata.frame_index == 0)
+                    if(udata.avpacket->duration <= 0)
                     {
-                        av_init_packet(udata.avpacket);
                         averr = av_read_frame(udata.context.avformatContext, udata.avpacket);
                         if(averr == AVERROR_EOF)
                         {
                             //没了
+                            av_packet_unref(udata.avpacket);
                             udata.state = audio_play_state_decode_end;
                             break;
                         }
 
                         if(averr)
                         {
+                            fprintf(flog, "av_read_frame %d.\n", averr);
+                            av_packet_unref(udata.avpacket);
                             udata.state = audio_play_state_error;
                             break;
                         }
 
                         if(udata.avpacket->dts == AV_NOPTS_VALUE)
+                        {
+                            av_packet_unref(udata.avpacket);
                             continue;
+                        }
 
-                        if(udata.avpacket->stream_index != udata.context.stream_index)
+                        if(udata.avpacket->stream_index != udata.context.audioStreamIndex)
+                        {
+                            av_packet_unref(udata.avpacket);
                             continue;
+                        }
 
-                        //printf("index:%5d\t pts:%lld\t packet size:%d\n", udata.packet_index, udata.avpacket->pts, udata.avpacket->size);
-                        ++udata.packet_index;
-
+                        //printf("index:%5d\t pts:%lld\t packet size:%d ptsOffset:%lld\n", udata.packetIndex, udata.avpacket->pts, udata.avpacket->size, udata.ptsOffset);
+                        ++udata.packetIndex;
+                        
                         averr = avcodec_send_packet(udata.context.avcodecContext, udata.avpacket);
                         if(averr)
                         {
+                            fprintf(flog, "avcodec_send_packet %d.\n", averr);
                             udata.state = audio_play_state_error;
+                            av_packet_unref(udata.avpacket);
                             break;
                         }
+
+                        udata.context.sampleIndex = -1;
                     }
 
-                    ++udata.frame_index;
-                    averr = avcodec_receive_frame(udata.context.avcodecContext, avframe);
-                    if(averr == AVERROR(EAGAIN))
+                    //帧首
+                    if(udata.context.sampleIndex < 0)
                     {
-                        //读取下一个 packet
-                        udata.frame_index = 0;
-                        continue;
+                        averr = avcodec_receive_frame(udata.context.avcodecContext, avframe);
+                        if(averr == AVERROR(EAGAIN))
+                        {
+                            //读取下一个 packetav_free_packet(&packet);
+                            av_frame_unref(avframe);
+                            av_packet_unref(udata.avpacket);
+                            continue;
+                        }
+
+
+                        if(averr < 0)
+                        {
+                            fprintf(flog, "avcodec_receive_frame %d.\n", averr);
+                            //udata.state = audio_play_state_error;
+                            //break;
+                            //读取下一个 packet
+                            // QQ Music 转码后，ff_flac_decode_frame_header 会出现末尾解包错误。
+                            av_frame_unref(avframe);
+                            av_packet_unref(udata.avpacket);
+                            continue;
+                        }
+                        ++udata.frameIndex;
+                        udata.context.sampleIndex = udata.sampleIndex;
                     }
 
-                    if(averr < 0)
-                    {
-                        udata.state = audio_play_state_error;
-                        //char buff[1024];
-                        //av_strerror(averr, buff, 1024);
-                        break;
-                    }
-
-                    //推送 PCM
                     audio_buffer & buffer = udata.buffers[udata.decodeIndex % MAX_BUFFER];
                     if(!buffer.data)
                     {
-                        int max_frame_size = m_outSampleRate * 4;
                         buffer.index = -1;
-                        buffer.data = (uint8_t *)av_malloc(max_frame_size * m_outChannels);
-                        buffer.cap = max_frame_size;
-                        buffer.len = 0;
-                        buffer.pos = 0;
-                        buffer.samples = 0;
+                        buffer.data = (uint8_t *)av_malloc(m_outBufferSamples * unit_size * m_outChannels);
+                        buffer.sampleIndex = 0;
+                        buffer.sampleSize = m_outBufferSamples;
                     }
 
                     //第一个 buffer
-                    if(buffer.index != udata.buffer_index)
+                    if(buffer.index != udata.bufferIndex)
                     {
-                        buffer.index = udata.buffer_index;
-                        buffer.pos = 0;
-                        buffer.len = 0;
-                        buffer.samples = 0;
+                        buffer.index = udata.bufferIndex;
+                        buffer.sampleIndex = 0;
+                        buffer.dts = 0;
                     }
 
-                    int unit_size = av_get_bytes_per_sample(m_outSampleFormat);
+                    int nb_samples_have = avframe->nb_samples - (udata.sampleIndex - udata.context.sampleIndex);
+                    int nb_samples_need = buffer.sampleSize - buffer.sampleIndex;
+                    int nb_samples = nb_samples_have > nb_samples_need ? nb_samples_need : nb_samples_have;
+
                     ////无需转码
                     if(!udata.context.swr)
                     {
-                        uint8_t * out_buffer = buffer.data + buffer.len;
                         if(av_sample_fmt_is_planar(m_outSampleFormat))
                         {
-                            byte * dst = out_buffer;
-                            for(int isam = 0; isam < avframe->nb_samples; ++isam)
+                            while(udata.sampleIndex < avframe->nb_samples && buffer.sampleIndex < buffer.sampleSize)
                             {
                                 for(int ich = 0; ich < m_outChannels; ++ich)
                                 {
-                                    uint8_t * src = avframe->data[ich] + isam * unit_size;
+                                    uint8_t * dst = buffer.data + buffer.sampleIndex * unit_size;
+                                    uint8_t * src = avframe->data[ich] + (udata.sampleIndex - udata.context.sampleIndex) * unit_size;
                                     memcpy(dst, src, unit_size);
                                     dst += unit_size;
                                 }
+                                ++udata.sampleIndex;
+                                ++buffer.sampleIndex;
                             }
-                            buffer.len += unit_size * avframe->nb_samples * m_outChannels;
                         }
                         else
                         {
-                            int out_buffer_size = avframe->linesize[0];
-                            memcpy(out_buffer, avframe->data[0], out_buffer_size);
-                            buffer.len += out_buffer_size;
+                            uint8_t * dst = buffer.data + buffer.sampleIndex * unit_size * m_outChannels;
+                            uint8_t * src = avframe->data[0] + (udata.sampleIndex - udata.context.sampleIndex) * unit_size * m_outChannels;
+
+                            memcpy(dst, src, nb_samples * unit_size * m_outChannels);
+                            udata.sampleIndex += nb_samples;
+                            buffer.sampleIndex += nb_samples;
                         }
-                        buffer.samples += avframe->nb_samples;
                     }
                     else
                     {
-                        uint8_t * out_buffer = buffer.data + buffer.len;
-                        int nb_samples = swr_convert(udata.context.swr, &out_buffer, (buffer.cap - buffer.len) / unit_size / m_outChannels, (const uint8_t**)avframe->data, avframe->nb_samples);
-                        if(nb_samples < 0)
+                        uint8_t * dst = buffer.data + buffer.sampleIndex * unit_size * m_outChannels;
+                        if(udata.sampleIndex == udata.context.sampleIndex)
                         {
-                            udata.state = audio_play_state_error;
-                            //printf("Error in swr_convert audio frame.\n");
-                            break;
+                            averr = swr_convert(udata.context.swr, &dst, nb_samples, (const uint8_t**)avframe->data, avframe->nb_samples);
+                            if(averr < 0)
+                            {
+                                char err[512];
+                                av_strerror(averr, err, 512);
+                                fprintf(flog, "swr_convert %d.\n", averr);
+                                udata.state = audio_play_state_error;
+                                //printf("Error in swr_convert audio frame.\n");
+                                break;
+                            }
+                            udata.sampleIndex += averr;
+                            buffer.sampleIndex += averr;
                         }
+                        else
+                        {
+                            averr = swr_convert(udata.context.swr, &dst, nb_samples, 0, 0);
+                            if(averr == 0)
+                                break;
 
-                        int out_buffer_size = av_samples_get_buffer_size(NULL, m_outChannels, nb_samples, m_outSampleFormat, 1);
-                        buffer.len += out_buffer_size;
-                        buffer.samples += nb_samples;
+                            if(averr < 0)
+                            {
+                                fprintf(flog, "swr_convert2 %d.\n", averr);
+                                udata.state = audio_play_state_error;
+                                //printf("Error in swr_convert audio frame.\n");
+                                break;
+                            }
+                            udata.sampleIndex += averr;
+                            buffer.sampleIndex += averr;
+                        }
                     }
 
-                    //数据量不够，继续
-                    if(buffer.samples >= m_outBufferSamples)
+                    //读取下一帧
+                    if((udata.sampleIndex - udata.context.sampleIndex) >= avframe->nb_samples)
                     {
-                        ++udata.buffer_index;
-                        InterlockedAdd(&udata.decodeIndex, 1);
-                        if(udata.presenter_start == 0)
-                            udata.presenter_start = timeGetTime();
+                        udata.context.sampleIndex = -1;
+                        av_frame_unref(avframe);
+                    }
+
+                    if(buffer.sampleIndex >= buffer.sampleSize)
+                    {
+                        buffer.dts = udata.sampleIndex * 1000 / m_outSampleRate;
+                        //fprintf(flog, "[%02lld:%02lld:%02lld.%03lld]: -------   %lld %lld %lld   %3.5f\n", 
+                        //    buffer.dts / 3600000, (buffer.dts / 60000) % 60, (buffer.dts / 1000) % 60, buffer.dts % 1000,
+                        //    udata.dts, udata.pts, buffer.dts, udata.ptsOffset / 1000.0f);
+                        fflush(flog);
+                        ++udata.bufferIndex;
+                        //InterlockedAdd(&udata.decodeIndex, 1);
+                        if(udata.dts == 0)
+                            udata.dts = timeGetTime();
                         break;
                     }
                 }
             }
         }
-
 
         //设备关闭
         SDL_Event event;
@@ -465,7 +525,7 @@ int AudioPlayer::doPlay()
             else if(udata.state == audio_play_state_decode_end)
             {
                 long long duration = udata.context.avformatContext->duration / (AV_TIME_BASE / 1000);
-                if(tmNow - udata.presenter_start >= duration)
+                if(tmNow - udata.pts >= duration)
                 {
                     sdl_user_data_uninit(udata);
                     iter = sdl_datas.erase(iter);
@@ -490,6 +550,9 @@ void AudioPlayer::doMix(Uint8 * stream, int len)
 {
     SDL_memset(stream, 0, len);
 
+    long long pts = timeGetTime();
+    int bytePerSample = av_get_bytes_per_sample(m_outSampleFormat);
+    int sampleSize = len / bytePerSample / m_outChannels;
     m_csPlayMix.lock();
     for(size_t cnt = 0; cnt < sdl_datas.size(); ++cnt)
     {
@@ -497,46 +560,29 @@ void AudioPlayer::doMix(Uint8 * stream, int len)
         int nb_buffers = udata.decodeIndex - udata.playIndex;
         if(nb_buffers < 1)
             continue;
-
         audio_buffer & buffer = udata.buffers[udata.playIndex % MAX_BUFFER];
-        if(buffer.len == 0)
-            return;
-
-        int size = len > buffer.len ? buffer.len : len;
-        if(size < len && nb_buffers < 2)
+        if(buffer.sampleSize != sampleSize)
             continue;
 
-        SDL_MixAudioFormat(stream, buffer.data + buffer.pos, m_sdlSampleFormat, size, SDL_MIX_MAXVOLUME);
-        buffer.pos += size;
-        buffer.len -= size;
-        if(buffer.len == 0)
-            InterlockedAdd(&udata.playIndex, 1);
+        if(udata.pts == 0)
+            udata.pts = pts;
 
-        int len2 = len - size;
-        if(len2)
+        SDL_MixAudioFormat(stream, buffer.data, m_sdlSampleFormat, len, SDL_MIX_MAXVOLUME);
+
+        //计算时间差
+        if(udata.pts && udata.dts)
         {
-            //使用第二个包的数据
-            audio_buffer & buffer2 = udata.buffers[udata.playIndex % MAX_BUFFER];
-            if(buffer2.len == 0)
-                continue;
-
-            int size2 = len2 > buffer2.len ? buffer2.len : len2;
-            if(size2 < len2 && nb_buffers < 2)
-                continue;
-
-            SDL_MixAudioFormat(stream + size, buffer2.data + buffer2.pos, m_sdlSampleFormat, size2, SDL_MIX_MAXVOLUME);
-            buffer2.pos += size2;
-            buffer2.len -= size2;
-            if(buffer2.len == 0)
-                InterlockedAdd(&udata.playIndex, 1);
+            long long dts = udata.dts + buffer.dts + udata.dtsOffset;
+            udata.ptsOffset = dts - pts;
         }
+        InterlockedAdd(&udata.playIndex, 1);
     }
     m_csPlayMix.unlock();
 }
 
 unsigned AudioPlayer::playThread(void * args)
 {
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    //SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
     AudioPlayer * pThis = (AudioPlayer * )args;
     pThis->doPlay();
     return 0;
@@ -544,7 +590,7 @@ unsigned AudioPlayer::playThread(void * args)
 
 void AudioPlayer::sdlMix(void * udata, Uint8 * stream, int len)
 {
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    //SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
     AudioPlayer * pThis = (AudioPlayer *)udata;
     pThis->doMix(stream, len);
 }

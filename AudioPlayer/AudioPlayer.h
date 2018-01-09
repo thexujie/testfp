@@ -38,21 +38,24 @@ struct audio_context
     struct AVCodecParameters * avcodecParameters;
     struct AVCodec * avcodec;
 
-    int stream_index;
+    int audioStreamIndex;
     int out_nb_samples_preffer;
+    //当前帧的样本索引
+    long long sampleIndex;
 };
 
 //不能小于 3
-const int MAX_BUFFER = 3;
+const int MAX_BUFFER = 2;
 
 struct audio_buffer
 {
-    int index;
+    long long index;
     byte * data;
-    int cap;
-    int len;
-    int pos;
-    int samples;
+    long long sampleIndex;
+    long long sampleSize;
+
+    //相对值
+    long long dts;
 };
 
 enum audio_play_state
@@ -65,19 +68,32 @@ enum audio_play_state
 
 struct audio_play_conntext
 {
-    audio_context context;
     audio_play_state state;
 
-    long long presenter_start;
+    audio_context context;
+    struct AVPacket * avpacket;
 
-    long playIndex;
-    long decodeIndex;
     audio_buffer buffers[MAX_BUFFER];
 
-    struct AVPacket * avpacket;
-    int buffer_index;
-    int packet_index;
-    int frame_index;
+    //播放、解码
+    long playIndex;
+    long decodeIndex;
+
+    //时间轴同步，绝对值
+    long long dts;
+    long long pts;
+
+    long long dtsOffset;
+    long long ptsOffset;
+
+    //解码到的缓冲
+    long long bufferIndex;
+    //包
+    long long packetIndex;
+    //帧
+    long long frameIndex;
+    //样本
+    long long sampleIndex;
 };
 
 class AudioPlayer

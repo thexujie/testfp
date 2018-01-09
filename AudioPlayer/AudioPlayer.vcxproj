@@ -95,7 +95,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>../deps/ffmpeg/lib/x64;../deps/sdl2/lib/x64</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>../deps/ffmpeg/lib/x64d;../deps/sdl2/lib/x64</AdditionalLibraryDirectories>
       <AdditionalDependencies>avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
