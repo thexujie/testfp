@@ -401,10 +401,10 @@ int AudioPlayer::doPlay()
                         buffer.pts = 0;
                     }
 
-                    //不同步的时候，丢掉整个 frame
+                    //不同步的时候，丢掉整个 frame，通常是解码慢了或者解码线程堵塞。
+                    // buffer.pts 不会超前
+                    //TODO
                     long long nb_samples_have = swr_get_out_samples(udata.context.swr, udata.sampleIndex == udata.context.sampleIndex ? avframe->nb_samples : 0);
-                    long long nb_samples_need = buffer.sampleSize - buffer.sampleIndex;
-                    long long nb_samples = nb_samples_have > nb_samples_need ? nb_samples_need : nb_samples_have;
                     if(udata.pts)
                     {
                         long long pts = udata.ptsBase + udata.sampleIndex * AV_TIME_BASE / m_outSampleRate;
@@ -418,6 +418,9 @@ int AudioPlayer::doPlay()
                             continue;
                         }
                     }
+
+                    long long nb_samples_need = buffer.sampleSize - buffer.sampleIndex;
+                    long long nb_samples = nb_samples_have > nb_samples_need ? nb_samples_need : nb_samples_have;
 
                     ////无需转码
                     if(!udata.context.swr)
@@ -492,7 +495,7 @@ int AudioPlayer::doPlay()
 
                     if(buffer.sampleIndex >= buffer.sampleSize)
                     {
-                        buffer.pts = udata.ptsAdjust + udata.sampleIndex * AV_TIME_BASE / m_outSampleRate;
+                        buffer.pts = udata.sampleIndex * AV_TIME_BASE / m_outSampleRate;
                         fprintf(flog, "[%02lld:%02lld:%02lld.%03lld][%lld-%lld]: -------   %lld %lld   %3.5f\n", 
                             buffer.pts / AV_TIME_BASE / 3600, (buffer.pts / AV_TIME_BASE / 60) % 60, (buffer.pts / AV_TIME_BASE) % 60, (buffer.pts / (AV_TIME_BASE / 1000)) % 1000,
                             udata.packetIndex, udata.sampleIndex,
@@ -595,8 +598,7 @@ void AudioPlayer::doMix(Uint8 * stream, int len)
         SDL_MixAudioFormat(stream, buffer.data, m_sdlSampleFormat, len, SDL_MIX_MAXVOLUME);
 
         //计算时间差
-        long long ptsOffset = udata.ptsBase + buffer.pts - ptsNow;
-        InterlockedExchange64(&udata.ptsOffset, ptsOffset);
+        InterlockedExchange64(&udata.ptsOffset, udata.ptsBase + buffer.pts - ptsNow);
         InterlockedAdd(&udata.playIndex, 1);
     }
     m_csPlayMix.unlock();

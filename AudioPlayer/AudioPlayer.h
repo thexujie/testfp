@@ -45,7 +45,7 @@ struct audio_context
 };
 
 //不能小于 3
-const int MAX_BUFFER = 2;
+const int MAX_BUFFER = 200;
 
 struct audio_buffer
 {
@@ -82,7 +82,6 @@ struct audio_play_conntext
     //时间轴同步
     long long pts;
     long long ptsBase;
-    long long ptsAdjust;
     long long ptsOffset;
 
 
