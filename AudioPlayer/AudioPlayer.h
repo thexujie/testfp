@@ -55,7 +55,7 @@ struct audio_buffer
     long long sampleSize;
 
     //相对值
-    long long dts;
+    long long pts;
 };
 
 enum audio_play_state
@@ -79,12 +79,12 @@ struct audio_play_conntext
     long playIndex;
     long decodeIndex;
 
-    //时间轴同步，绝对值
-    long long dts;
+    //时间轴同步
     long long pts;
-
-    long long dtsOffset;
+    long long ptsBase;
+    long long ptsAdjust;
     long long ptsOffset;
+
 
     //解码到的缓冲
     long long bufferIndex;
