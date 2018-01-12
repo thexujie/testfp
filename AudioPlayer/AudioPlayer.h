@@ -82,6 +82,7 @@ struct audio_play_conntext
     //时间轴同步
     long long dtsBase;
     //混合时间
+    long long dts;
     long long pts;
     long long ptsOffset;
 

@@ -504,11 +504,12 @@ int AudioPlayer::doPlay()
                         fflush(flog);
                         ++udata.bufferIndex;
 #if SDL_PLAY
+                        InterlockedExchange64(&udata.dts, buffer.dts);
                         InterlockedAdd64(&udata.decodeIndex, 1);
 #endif
                         printf("\r[%lld] %02lld:%02lld:%02lld.%03lld  [%lld] %02lld:%02lld:%02lld.%03lld", 
                             udata.playIndex, udata.pts / AV_TIME_BASE / 3600, (udata.pts / AV_TIME_BASE / 60) % 60, (udata.pts / AV_TIME_BASE) % 60, (udata.pts / (AV_TIME_BASE / 1000)) % 1000,
-                            udata.decodeIndex, buffer.dts / AV_TIME_BASE / 3600, (buffer.dts / AV_TIME_BASE / 60) % 60, (buffer.dts / AV_TIME_BASE) % 60, (buffer.dts / (AV_TIME_BASE / 1000)) % 1000);
+                            udata.decodeIndex, udata.dts / AV_TIME_BASE / 3600, (udata.dts / AV_TIME_BASE / 60) % 60, (udata.dts / AV_TIME_BASE) % 60, (udata.dts / (AV_TIME_BASE / 1000)) % 1000);
                         break;
                     }
                 }
