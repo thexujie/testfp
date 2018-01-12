@@ -297,8 +297,8 @@ int AudioPlayer::doPlay()
         for(size_t cnt = 0; cnt < sdl_datas.size(); ++cnt)
         {
             audio_play_conntext & udata = sdl_datas[cnt];
-            if(udata.ptsBase == 0)
-                udata.ptsBase = timeGetTime() * TIME_BASE_MS;
+            if(udata.dtsBase == 0)
+                udata.dtsBase = timeGetTime() * TIME_BASE_MS;
             while(udata.decodeIndex - udata.playIndex < MAX_BUFFER - 1 && udata.state == audio_play_state_ok)
             {
                 if(!udata.avpacket)
@@ -368,7 +368,6 @@ int AudioPlayer::doPlay()
                             continue;
                         }
 
-
                         if(averr < 0)
                         {
                             fprintf(flog, "avcodec_receive_frame %d.\n", averr);
@@ -398,22 +397,24 @@ int AudioPlayer::doPlay()
                     {
                         buffer.index = udata.bufferIndex;
                         buffer.sampleIndex = 0;
-                        buffer.pts = 0;
+                        buffer.dts = 0;
                     }
 
                     //不同步的时候，丢掉整个 frame，通常是解码慢了或者解码线程堵塞。
                     // buffer.pts 不会超前
+
                     //TODO
                     long long nb_samples_have = swr_get_out_samples(udata.context.swr, udata.sampleIndex == udata.context.sampleIndex ? avframe->nb_samples : 0);
-                    if(udata.pts)
+                    if(udata.dtsBase)
                     {
-                        long long pts = udata.ptsBase + udata.sampleIndex * AV_TIME_BASE / m_outSampleRate;
-                        long long nb_samples_sync = (udata.pts - pts) * m_outSampleRate / TIME_BASE_S;
+                        long long dts = timeGetTime() * TIME_BASE_MS;
+                        long long nb_samples_sync = (dts - udata.dtsBase) * m_outSampleRate / TIME_BASE_S - udata.sampleIndex + (udata.decodeIndex - udata.playIndex) * m_outBufferSamples;
                         if(nb_samples_sync > nb_samples_have)
                         {
                             fprintf(flog, "skip frame %lld samples, %lld-%lld-%lld\n", nb_samples_have, udata.packetIndex, udata.frameIndex, udata.sampleIndex);
                             udata.context.sampleIndex = -1;
                             udata.sampleIndex += nb_samples_have;
+                            swr_drop_output(udata.context.swr, nb_samples_have);
                             av_frame_unref(avframe);
                             continue;
                         }
@@ -495,16 +496,19 @@ int AudioPlayer::doPlay()
 
                     if(buffer.sampleIndex >= buffer.sampleSize)
                     {
-                        buffer.pts = udata.sampleIndex * AV_TIME_BASE / m_outSampleRate;
+                        buffer.dts = udata.sampleIndex * AV_TIME_BASE / m_outSampleRate;
                         fprintf(flog, "[%02lld:%02lld:%02lld.%03lld][%lld-%lld]: -------   %lld %lld   %3.5f\n", 
-                            buffer.pts / AV_TIME_BASE / 3600, (buffer.pts / AV_TIME_BASE / 60) % 60, (buffer.pts / AV_TIME_BASE) % 60, (buffer.pts / (AV_TIME_BASE / 1000)) % 1000,
+                            buffer.dts / AV_TIME_BASE / 3600, (buffer.dts / AV_TIME_BASE / 60) % 60, (buffer.dts / AV_TIME_BASE) % 60, (buffer.dts / (AV_TIME_BASE / 1000)) % 1000,
                             udata.packetIndex, udata.sampleIndex,
-                            udata.ptsBase, buffer.pts, udata.ptsOffset / (double)TIME_BASE_S);
+                            udata.dtsBase, buffer.dts, udata.ptsOffset / (double)TIME_BASE_S);
                         fflush(flog);
                         ++udata.bufferIndex;
 #if SDL_PLAY
-                        InterlockedAdd(&udata.decodeIndex, 1);
+                        InterlockedAdd64(&udata.decodeIndex, 1);
 #endif
+                        printf("\r[%lld] %02lld:%02lld:%02lld.%03lld  [%lld] %02lld:%02lld:%02lld.%03lld", 
+                            udata.playIndex, udata.pts / AV_TIME_BASE / 3600, (udata.pts / AV_TIME_BASE / 60) % 60, (udata.pts / AV_TIME_BASE) % 60, (udata.pts / (AV_TIME_BASE / 1000)) % 1000,
+                            udata.decodeIndex, buffer.dts / AV_TIME_BASE / 3600, (buffer.dts / AV_TIME_BASE / 60) % 60, (buffer.dts / AV_TIME_BASE) % 60, (buffer.dts / (AV_TIME_BASE / 1000)) % 1000);
                         break;
                     }
                 }
@@ -552,7 +556,7 @@ int AudioPlayer::doPlay()
             {
                 long long duration = udata.context.avformatContext->duration / (AV_TIME_BASE / 1000);
 #if SDL_PLAY
-                if(tmNow - udata.ptsBase >= duration)
+                if(tmNow - udata.dtsBase >= duration)
 #endif
                 {
                     fprintf(flog, "packets: %lld, samples: %lld\n", udata.packetIndex, udata.sampleIndex);
@@ -580,14 +584,13 @@ void AudioPlayer::doMix(Uint8 * stream, int len)
 {
     SDL_memset(stream, 0, len);
 
-    long long ptsNow = timeGetTime() * TIME_BASE_MS;
     int bytePerSample = av_get_bytes_per_sample(m_outSampleFormat);
     int sampleSize = len / bytePerSample / m_outChannels;
+    long long pts = timeGetTime() * TIME_BASE_MS;
     m_csPlayMix.lock();
     for(size_t cnt = 0; cnt < sdl_datas.size(); ++cnt)
     {
         audio_play_conntext & udata = sdl_datas[cnt];
-        InterlockedExchange64(&udata.pts, ptsNow);
         int nb_buffers = udata.decodeIndex - udata.playIndex;
         if(nb_buffers < 1)
             continue;
@@ -597,9 +600,9 @@ void AudioPlayer::doMix(Uint8 * stream, int len)
 
         SDL_MixAudioFormat(stream, buffer.data, m_sdlSampleFormat, len, SDL_MIX_MAXVOLUME);
 
-        //计算时间差
-        InterlockedExchange64(&udata.ptsOffset, udata.ptsBase + buffer.pts - ptsNow);
-        InterlockedAdd(&udata.playIndex, 1);
+        InterlockedExchange64(&udata.pts, buffer.dts);
+        InterlockedExchange64(&udata.ptsOffset, pts - udata.dtsBase - buffer.dts);
+        InterlockedAdd64(&udata.playIndex, 1);
     }
     m_csPlayMix.unlock();
 }
