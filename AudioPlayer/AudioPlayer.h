@@ -1,5 +1,9 @@
 #pragma once
 
+
+#define SDL_PLAY 1
+//#define AP_LOG
+
 class CSObject
 {
 public:
@@ -72,6 +76,7 @@ struct audio_play_conntext
 
     audio_context context;
     struct AVPacket * avpacket;
+    struct AVFrame * avframe;
 
     audio_buffer buffers[MAX_BUFFER];
 
@@ -132,4 +137,7 @@ private:
     SDL_AudioFormat m_sdlSampleFormat;
 
     std::vector<audio_play_conntext> sdl_datas;
+#ifdef AP_LOG
+    FILE * m_logFile;
+#endif
 };

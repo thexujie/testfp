@@ -6,8 +6,12 @@
 const int TIME_BASE_S = AV_TIME_BASE;
 const int TIME_BASE_MS = AV_TIME_BASE / 1000;
 
-#define SDL_PLAY 1
-FILE * flog = 0;
+#ifdef AP_LOG
+#define log(f,...) fprintf(f,...)
+#else
+#define log(f,...)
+#endif
+
 static void audio_context_uninit(audio_context * ptr)
 {
     if(!ptr)
@@ -21,7 +25,8 @@ static void audio_context_uninit(audio_context * ptr)
 static void sdl_user_data_uninit(audio_play_conntext & context)
 {
     audio_context_uninit(&context.context);
-    av_free(context.avpacket);
+    av_packet_free(&context.avpacket);
+    av_frame_free(&context.avframe);
     for(int cnt = 0; cnt < MAX_BUFFER; ++cnt)
     {
         if(context.buffers[cnt].data)
@@ -47,7 +52,9 @@ m_outSampleRate(0), m_outBufferSamples(0)
     m_outSampleFormat = AV_SAMPLE_FMT_S16;
     m_outChannels = av_get_channel_layout_nb_channels(AV_CH_LAYOUT_STEREO);
     m_sdlSampleFormat = AUDIO_S16LSB;
-    flog = _fsopen("out.txt", "wt", _SH_DENYWR);
+#ifdef AP_LOG
+    m_logFile = _fsopen("../temp/out.txt", "wt", _SH_DENYWR);
+#endif
 }
 
 AudioPlayer::~AudioPlayer()
@@ -198,7 +205,7 @@ int AudioPlayer::generate(std::string filename, audio_context & context)
             return APErrorInternal;
     }
 
-    int out_nb_samples_preffer = 0;
+    int64_t out_nb_samples_preffer = 0;
     switch(avcodecContext->codec_id)
     {
     case AV_CODEC_ID_ADPCM_MS:
@@ -234,9 +241,6 @@ int AudioPlayer::doPlay()
 
     int averr = 0;
 
-    avobject3<AVFrame, av_frame_free> avframe(av_frame_alloc());
-
-    int index = 0;
     while(!m_endPlayThread)
     {
         std::vector<std::string> fileList;
@@ -323,7 +327,7 @@ int AudioPlayer::doPlay()
 
                         if(averr)
                         {
-                            fprintf(flog, "av_read_frame %d.\n", averr);
+                            log(m_logFile, "av_read_frame %d.\n", averr);
                             av_packet_unref(udata.avpacket);
                             udata.state = audio_play_state_error;
                             break;
@@ -347,7 +351,7 @@ int AudioPlayer::doPlay()
                         averr = avcodec_send_packet(udata.context.avcodecContext, udata.avpacket);
                         if(averr)
                         {
-                            fprintf(flog, "avcodec_send_packet %d.\n", averr);
+                            log(m_logFile, "avcodec_send_packet %d.\n", averr);
                             udata.state = audio_play_state_error;
                             av_packet_unref(udata.avpacket);
                             break;
@@ -359,23 +363,26 @@ int AudioPlayer::doPlay()
                     //帧首
                     if(udata.context.sampleIndex < 0)
                     {
-                        averr = avcodec_receive_frame(udata.context.avcodecContext, avframe);
+                        if(!udata.avframe)
+                            udata.avframe = av_frame_alloc();
+
+                        averr = avcodec_receive_frame(udata.context.avcodecContext, udata.avframe);
                         if(averr == AVERROR(EAGAIN))
                         {
                             //读取下一个 packetav_free_packet(&packet);
-                            av_frame_unref(avframe);
+                            av_frame_unref(udata.avframe);
                             av_packet_unref(udata.avpacket);
                             continue;
                         }
 
                         if(averr < 0)
                         {
-                            fprintf(flog, "avcodec_receive_frame %d.\n", averr);
+                            log(m_logFile, "avcodec_receive_frame %d.\n", averr);
                             //udata.state = audio_play_state_error;
                             //break;
                             //读取下一个 packet
                             // QQ Music 转码后，ff_flac_decode_frame_header 会出现末尾解包错误。
-                            av_frame_unref(avframe);
+                            av_frame_unref(udata.avframe);
                             av_packet_unref(udata.avpacket);
                             continue;
                         }
@@ -404,18 +411,18 @@ int AudioPlayer::doPlay()
                     // buffer.pts 不会超前
 
                     //TODO
-                    long long nb_samples_have = swr_get_out_samples(udata.context.swr, udata.sampleIndex == udata.context.sampleIndex ? avframe->nb_samples : 0);
+                    long long nb_samples_have = swr_get_out_samples(udata.context.swr, udata.sampleIndex == udata.context.sampleIndex ? udata.avframe->nb_samples : 0);
                     if(udata.dtsBase)
                     {
                         long long dts = timeGetTime() * TIME_BASE_MS;
                         long long nb_samples_sync = (dts - udata.dtsBase) * m_outSampleRate / TIME_BASE_S - udata.sampleIndex + (udata.decodeIndex - udata.playIndex) * m_outBufferSamples;
                         if(nb_samples_sync > nb_samples_have)
                         {
-                            fprintf(flog, "skip frame %lld samples, %lld-%lld-%lld\n", nb_samples_have, udata.packetIndex, udata.frameIndex, udata.sampleIndex);
+                            log(m_logFile, "skip frame %lld samples, %lld-%lld-%lld\n", nb_samples_have, udata.packetIndex, udata.frameIndex, udata.sampleIndex);
                             udata.context.sampleIndex = -1;
                             udata.sampleIndex += nb_samples_have;
                             swr_drop_output(udata.context.swr, nb_samples_have);
-                            av_frame_unref(avframe);
+                            av_frame_unref(udata.avframe);
                             continue;
                         }
                     }
@@ -433,7 +440,7 @@ int AudioPlayer::doPlay()
                                 for(int ich = 0; ich < m_outChannels; ++ich)
                                 {
                                     uint8_t * dst = buffer.data + buffer.sampleIndex * unit_size;
-                                    uint8_t * src = avframe->data[ich] + (udata.sampleIndex - udata.context.sampleIndex) * unit_size;
+                                    uint8_t * src = udata.avframe->data[ich] + (udata.sampleIndex - udata.context.sampleIndex) * unit_size;
                                     memcpy(dst, src, unit_size);
                                 }
                                 ++udata.sampleIndex;
@@ -443,7 +450,7 @@ int AudioPlayer::doPlay()
                         else
                         {
                             uint8_t * dst = buffer.data + buffer.sampleIndex * unit_size * m_outChannels;
-                            uint8_t * src = avframe->data[0] + (udata.sampleIndex - udata.context.sampleIndex) * unit_size * m_outChannels;
+                            uint8_t * src = udata.avframe->data[0] + (udata.sampleIndex - udata.context.sampleIndex) * unit_size * m_outChannels;
 
                             memcpy(dst, src, nb_samples * unit_size * m_outChannels);
                             udata.sampleIndex += nb_samples;
@@ -456,13 +463,13 @@ int AudioPlayer::doPlay()
                         if(udata.sampleIndex == udata.context.sampleIndex)
                         {
                             //swr_init(udata.context.swr);
-                            averr = swr_convert(udata.context.swr, &dst, nb_samples, (const uint8_t**)avframe->data, avframe->nb_samples);
+                            averr = swr_convert(udata.context.swr, &dst, nb_samples, (const uint8_t**)udata.avframe->data, udata.avframe->nb_samples);
                             if(averr < 0)
                             {
                                 //char err[512];
                                 //av_strerror(averr, err, 512);
                                 udata.state = audio_play_state_error;
-                                fprintf(flog, "Error in swr_convert audio frame.\n");
+                                log(m_logFile, "Error in swr_convert audio frame.\n");
                                 break;
                             }
                             udata.sampleIndex += averr;
@@ -477,7 +484,7 @@ int AudioPlayer::doPlay()
 
                             if(averr < 0)
                             {
-                                fprintf(flog, "swr_convert2 %d.\n", averr);
+                                log(m_logFile, "swr_convert2 %d.\n", averr);
                                 udata.state = audio_play_state_error;
                                 //printf("Error in swr_convert audio frame.\n");
                                 break;
@@ -488,28 +495,31 @@ int AudioPlayer::doPlay()
                     }
 
                     //读取下一帧
-                    if((udata.sampleIndex - udata.context.sampleIndex) >= avframe->nb_samples)
+                    if((udata.sampleIndex - udata.context.sampleIndex) >= udata.avframe->nb_samples)
                     {
                         udata.context.sampleIndex = -1;
-                        av_frame_unref(avframe);
+                        av_frame_unref(udata.avframe);
                     }
 
                     if(buffer.sampleIndex >= buffer.sampleSize)
                     {
                         buffer.dts = udata.sampleIndex * AV_TIME_BASE / m_outSampleRate;
-                        fprintf(flog, "[%02lld:%02lld:%02lld.%03lld][%lld-%lld]: -------   %lld %lld   %3.5f\n", 
+                        log(m_logFile, "[%02lld:%02lld:%02lld.%03lld][%lld-%lld]: -------   %lld %lld   %3.5f\n", 
                             buffer.dts / AV_TIME_BASE / 3600, (buffer.dts / AV_TIME_BASE / 60) % 60, (buffer.dts / AV_TIME_BASE) % 60, (buffer.dts / (AV_TIME_BASE / 1000)) % 1000,
                             udata.packetIndex, udata.sampleIndex,
                             udata.dtsBase, buffer.dts, udata.ptsOffset / (double)TIME_BASE_S);
-                        fflush(flog);
+#ifdef  AP_LOG
+                        fflush(m_logFile);
+#endif
+
                         ++udata.bufferIndex;
 #if SDL_PLAY
                         InterlockedExchange64(&udata.dts, buffer.dts);
                         InterlockedAdd64(&udata.decodeIndex, 1);
-#endif
-                        printf("\r[%lld] %02lld:%02lld:%02lld.%03lld  [%lld] %02lld:%02lld:%02lld.%03lld", 
+                        printf("\r[%lld] %02lld:%02lld:%02lld.%03lld  [%lld] %02lld:%02lld:%02lld.%03lld %lf", 
                             udata.playIndex, udata.pts / AV_TIME_BASE / 3600, (udata.pts / AV_TIME_BASE / 60) % 60, (udata.pts / AV_TIME_BASE) % 60, (udata.pts / (AV_TIME_BASE / 1000)) % 1000,
-                            udata.decodeIndex, udata.dts / AV_TIME_BASE / 3600, (udata.dts / AV_TIME_BASE / 60) % 60, (udata.dts / AV_TIME_BASE) % 60, (udata.dts / (AV_TIME_BASE / 1000)) % 1000);
+                            udata.decodeIndex, udata.dts / AV_TIME_BASE / 3600, (udata.dts / AV_TIME_BASE / 60) % 60, (udata.dts / AV_TIME_BASE) % 60, (udata.dts / (AV_TIME_BASE / 1000)) % 1000, udata.ptsOffset / (double)AV_TIME_BASE);
+#endif
                         break;
                     }
                 }
@@ -560,8 +570,10 @@ int AudioPlayer::doPlay()
                 if(tmNow - udata.dtsBase >= duration)
 #endif
                 {
-                    fprintf(flog, "packets: %lld, samples: %lld\n", udata.packetIndex, udata.sampleIndex);
-                    fflush(flog);
+                    log(m_logFile, "packets: %lld, samples: %lld\n", udata.packetIndex, udata.sampleIndex);
+#ifdef  AP_LOG
+                    fflush(m_logFile);
+#endif
                     sdl_user_data_uninit(udata);
                     iter = sdl_datas.erase(iter);
                     continue;
