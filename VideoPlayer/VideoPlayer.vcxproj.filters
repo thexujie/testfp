@@ -3,13 +3,16 @@
   <ItemGroup>
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
-    <ClInclude Include="AudioPlayer.h" />
     <ClInclude Include="avobject.h" />
+    <ClInclude Include="VideoPlayer.h" />
+    <ClInclude Include="IMedia.h" />
+    <ClInclude Include="VideoRender.h" />
+    <ClInclude Include="CSObject.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
-    <ClCompile Include="test.cpp" />
-    <ClCompile Include="AudioPlayer.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="VideoPlayer.cpp" />
+    <ClCompile Include="VideoRender.cpp" />
   </ItemGroup>
 </Project>

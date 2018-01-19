@@ -143,7 +143,7 @@ int AudioPlayer::generate(std::string filename, audio_context & context)
     if(averr)
         return APErrorGeneric;
 
-    //av_dump_format(avformatContext, 0, filename.c_str(), false);
+    av_dump_format(avformatContext, 0, filename.c_str(), false);
 
     if(avformat_find_stream_info(avformatContext, NULL) < 0)
         return APErrorGeneric;

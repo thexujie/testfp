@@ -3,10 +3,14 @@
   <ItemGroup>
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
+    <ClInclude Include="cmdutils.h" />
+    <ClInclude Include="config.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="decode_audio.cpp" />
     <ClCompile Include="resampling_audio.cpp" />
+    <ClCompile Include="cmdutils.c" />
+    <ClCompile Include="ffplayer.c" />
   </ItemGroup>
 </Project>
