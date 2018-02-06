@@ -1,21 +1,39 @@
-#include "stdafx.h"
+ï»¿#include "stdafx.h"
 #include "VideoPlayer.h"
 #include "VideoRender.h"
+
+#include "MediaPlayerFP.h"
+
 int testPlay();
+int _tmain2(int argc, char* argv[])
+{
+    av_register_all();
+    MediaDemuxerFP mdfp;
+    mdfp.LoadFromFile(u8"F:\\files\\videos\\ç»‘æ¶è€….mkv");
+    return 0;
+}
 int _tmain(int argc, char* argv[])
 {
     ////testPlay();
-    ////SetConsoleOutputCP(CP_UTF8);
+    //SetConsoleOutputCP(CP_UTF8);
+    _CrtMemState stateOld, stateNew, stateDiff;
+    _CrtMemCheckpoint(&stateOld);
+    _tmain2(argc, argv);
+    _CrtMemCheckpoint(&stateNew);
+    if(_CrtMemDifference(&stateDiff, &stateOld, &stateNew))
+        _CrtMemDumpAllObjectsSince(&stateDiff);
+    return 0;
+
     VideoPlayer ap;
     ap.init();
-    ////¶àÂ·ºÏ³É
+    ////å¤šè·¯åˆæˆ
     ////ap.play("../res/musics/sample.wav");
     ////ap.play("../res/musics/mlsx.mp3");
     ////ap.play("../res/temp/weibokong.flac");
-    ////ap.play("../res/temp/ÖÜ½ÜÂ× - µ¾Ïã.m4a");
+    ////ap.play("../res/temp/å‘¨æ°ä¼¦ - ç¨»é¦™.m4a");
     ////ap.play("../res/temp/flower.wav");
     ////ap.play("../res/temp/alone.ape");
-    ap.play("F:\\files\\videos\\bjz.mkv");
+    ap.play(u8"F:\\files\\videos\\bjz.mkv");
     
     XuVideoRenderD3D9 render;
     render.init(&ap);
@@ -23,7 +41,7 @@ int _tmain(int argc, char* argv[])
 
     MSG msg;
 
-    // Ö÷ÏûÏ¢Ñ­»·: 
+    // ä¸»æ¶ˆæ¯å¾ªç¯: 
     while(GetMessage(&msg, nullptr, 0, 0))
     {
         TranslateMessage(&msg);

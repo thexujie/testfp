@@ -1677,12 +1677,6 @@ static double vp_duration(PlayState *play_state, Frame *vp, Frame *nextvp) {
     }
 }
 
-static void update_video_pts(PlayState *play_state, double pts, int64_t pos, int serial) {
-    /* update current video pts */
-    set_clock(&play_state->vidclk, pts, serial);
-    sync_clock_to_slave(&play_state->extclk, &play_state->vidclk);
-}
-
 /* called to display each frame */
 static void video_refresh(void *opaque, double *remaining_time)
 {
@@ -1747,7 +1741,11 @@ static void video_refresh(void *opaque, double *remaining_time)
 
             SDL_LockMutex(play_state->pictq.mutex);
             if(!isnan(vp->pts))
-                update_video_pts(play_state, vp->pts, vp->pos, vp->serial);
+            {
+                /* update current video pts */
+                set_clock(&play_state->vidclk, vp->pts, vp->serial);
+                sync_clock_to_slave(&play_state->extclk, &play_state->vidclk);
+            }
             SDL_UnlockMutex(play_state->pictq.mutex);
 
             if(frame_queue_nb_remaining(&play_state->pictq) > 1)
@@ -2555,8 +2553,6 @@ static int audio_decode_frame(PlayState *play_state)
 
     if(play_state->swr_ctx)
     {
-        const uint8_t **in = (const uint8_t **)af->frame->extended_data;
-        uint8_t **out = &play_state->audio_buf1;
         int out_count = (int64_t)wanted_nb_samples * play_state->audio_tgt.freq / af->frame->sample_rate + 256;
         int out_size = av_samples_get_buffer_size(NULL, play_state->audio_tgt.channels, out_count, play_state->audio_tgt.fmt, 0);
         if(out_size < 0)
@@ -2576,7 +2572,9 @@ static int audio_decode_frame(PlayState *play_state)
         av_fast_malloc(&play_state->audio_buf1, &play_state->audio_buf1_size, out_size);
         if(!play_state->audio_buf1)
             return AVERROR(ENOMEM);
-        int len2 = swr_convert(play_state->swr_ctx, out, out_count, in, af->frame->nb_samples);
+
+        uint8_t ** out = &play_state->audio_buf1;
+        int len2 = swr_convert(play_state->swr_ctx, out, out_count, af->frame->extended_data, af->frame->nb_samples);
         if(len2 < 0)
         {
             av_log(NULL, AV_LOG_ERROR, "swr_convert() failed\n");
@@ -2660,10 +2658,14 @@ static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
         play_state->audio_buf_index += len1;
     }
     play_state->audio_write_buf_size = play_state->audio_buf_size - play_state->audio_buf_index;
+
     /* Let's assume the audio driver that play_state used by SDL has two periods. */
     if(!isnan(play_state->audio_clock))
     {
-        set_clock_at(&play_state->audclk, play_state->audio_clock - (double)(2 * play_state->audio_hw_buf_size + play_state->audio_write_buf_size) / play_state->audio_tgt.bytes_per_sec, play_state->audio_clock_serial, audio_callback_time / 1000000.0);
+        set_clock_at(&play_state->audclk,
+            play_state->audio_clock - (double)(2 * play_state->audio_hw_buf_size + play_state->audio_write_buf_size) / play_state->audio_tgt.bytes_per_sec, 
+            play_state->audio_clock_serial, 
+            audio_callback_time / 1000000.0);
         sync_clock_to_slave(&play_state->extclk, &play_state->audclk);
     }
 }

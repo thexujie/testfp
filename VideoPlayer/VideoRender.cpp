@@ -2,6 +2,7 @@
 #include "VideoRender.h"
 #pragma comment(lib, "d3d9.lib")
 #include <DirectXMath.h>
+#include <process.h>
 using namespace DirectX;
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);

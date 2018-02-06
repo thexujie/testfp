@@ -8,11 +8,13 @@
     <ClInclude Include="IMedia.h" />
     <ClInclude Include="VideoRender.h" />
     <ClInclude Include="CSObject.h" />
+    <ClInclude Include="MediaPlayerFP.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="VideoPlayer.cpp" />
     <ClCompile Include="VideoRender.cpp" />
+    <ClCompile Include="MediaPlayerFP.cpp" />
   </ItemGroup>
 </Project>

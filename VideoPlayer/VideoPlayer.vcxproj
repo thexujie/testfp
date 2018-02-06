@@ -23,7 +23,7 @@
     <ProjectGuid>{9D7370E9-B86F-4EB0-A74B-2A4EDF1D72D4}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>XuPlayer</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.16299.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -72,6 +72,8 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)$(Configuration)_$(Platform)_$(PlatformToolset)\</OutDir>
+    <IntDir>$(SolutionDir)$(Configuration)_$(Platform)_$(PlatformToolset)\$(ProjectName).$(ProjectGuid)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
@@ -81,6 +83,8 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)$(Configuration)_$(Platform)_$(PlatformToolset)\</OutDir>
+    <IntDir>$(SolutionDir)$(Configuration)_$(Platform)_$(PlatformToolset)\$(ProjectName).$(ProjectGuid)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -88,15 +92,14 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>../deps/ffmpeg/include;../deps/sdl2/include</AdditionalIncludeDirectories>
-      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>../deps/ffmpeg/include/;../sdl2/include/</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>../deps/ffmpeg/lib/x64d;../deps/sdl2/lib/x64</AdditionalLibraryDirectories>
-      <AdditionalDependencies>avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>../deps/ffmpeg/lib/x64d</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -106,7 +109,7 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>../deps/ffmpeg/include;../deps/sdl2/include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../deps/ffmpeg/include/;../sdl2/include/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -124,6 +127,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -152,6 +156,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="IMedia.h" />
+    <ClInclude Include="MediaPlayerFP.h" />
     <ClInclude Include="VideoPlayer.h" />
     <ClInclude Include="avobject.h" />
     <ClInclude Include="stdafx.h" />
@@ -160,6 +165,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CSObject.h" />
+    <ClCompile Include="MediaPlayerFP.cpp" />
     <ClCompile Include="VideoPlayer.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="stdafx.cpp">
@@ -169,6 +175,11 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="VideoRender.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\sdl2\sdl2.vcxproj">
+      <Project>{81ce8daf-ebb2-4761-8e45-b71abcca8c68}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
