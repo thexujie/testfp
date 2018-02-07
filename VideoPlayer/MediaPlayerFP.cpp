@@ -228,6 +228,7 @@ FpFrame AudioDecoderFP::NextFrame()
     //if(_thread.get_id() == std::thread::id())
     //    _thread = std::thread(std::bind(&AudioDecoderFP::decoderThread, this));
 
+#if 0
     while (true)
     {
         {
@@ -246,84 +247,91 @@ FpFrame AudioDecoderFP::NextFrame()
                 return { nullptr, -1 };
         }
 
-        //_condDemuxer.notify_one();
-
-        //{
-        //    std::unique_lock<std::mutex> lock(_mtxRead);
-        //    _condRead.wait(lock);
-        //}
+        _condDemuxer.notify_one();
 
         {
-            static std::shared_ptr<AVCodecContext> _codec;
-            if(!_codec)
+            std::unique_lock<std::mutex> lock(_mtxRead);
+            _condRead.wait(lock);
+        }
+    }
+#else
+    {
+        static std::shared_ptr<AVCodecContext> _codec;
+        if (!_codec)
+        {
+            FpAudioFormat inputFormat = _demuxer->GetAudioFormat(_streamIndex);
+            AVCodec * avcodecAudio = avcodec_find_decoder(inputFormat.codecId);
+            if (!avcodecAudio)
             {
-                FpAudioFormat inputFormat = _demuxer->GetAudioFormat(_streamIndex);
-                AVCodec * avcodecAudio = avcodec_find_decoder(inputFormat.codecId);
-                if (!avcodecAudio)
-                {
-                    _readEnd = true;
-                    return {};
-                }
-
-                _codec.reset(avcodec_alloc_context3(avcodecAudio), avcodec_free_context_wrap);
-                _codec->sample_fmt = inputFormat.sampleFormat;
-                _codec->channels = inputFormat.chanels;
-                //_codec->channel_layout = av_get_default_channel_layout(_inputFormat.chanels);;
-                _codec->sample_rate = _inputFormat.sampleRate;
-
-                if (avcodec_open2(_codec.get(), avcodecAudio, NULL) < 0)
-                {
-                    _readEnd = true;
-                    return {};
-                }
+                _readEnd = true;
+                return {};
             }
 
-            static FpPacket _packet{};
-            int averr = 0;
-            while (_frames.size() < _maxFrames)
+            _codec.reset(avcodec_alloc_context3(avcodecAudio), avcodec_free_context_wrap);
+            _codec->sample_fmt = inputFormat.sampleFormat;
+            _codec->channels = inputFormat.chanels;
+            //_codec->channel_layout = av_get_default_channel_layout(_inputFormat.chanels);;
+            _codec->sample_rate = _inputFormat.sampleRate;
+
+            if (avcodec_open2(_codec.get(), avcodecAudio, NULL) < 0)
             {
-                std::shared_ptr<AVFrame> avframe(av_frame_alloc(), av_frame_free_wrap);
-                averr = avcodec_receive_frame(_codec.get(), avframe.get());
-                if (!averr)
-                {
-                    _frames.push({ avframe, _frameIndex++, 0 });
-                    continue;
-                }
+                _readEnd = true;
+                return {};
+            }
+        }
 
-                if (averr == AVERROR(EAGAIN))
-                {
-                    _packet.ptr.reset();
-                    _packet = _demuxer->NextPacket(_streamIndex);
-                    if (!_packet.ptr)
-                    {
-                        _readEnd = true;
-                        break;
-                    }
+        static FpPacket _packet{};
+        int averr = 0;
+        while (_frames.size() < _maxFrames)
+        {
+            std::shared_ptr<AVFrame> avframe(av_frame_alloc(), av_frame_free_wrap);
+            averr = avcodec_receive_frame(_codec.get(), avframe.get());
+            if (!averr)
+            {
+                _frames.push({ avframe, _frameIndex++, 0 });
+                continue;
+            }
 
-                    if (_packet.ptr->stream_index != _streamIndex)
-                    {
-                        _readEnd = true;
-                        break;
-                    }
-                    printf("packet [%lld] pos=%lld, pts=%lld, dur=%lld.\n", _packet.localIndex, _packet.ptr->pos, _packet.ptr->pts, _packet.ptr->duration);
-
-                    averr = avcodec_send_packet(_codec.get(), _packet.ptr.get());
-                    if (averr < 0)
-                    {
-                        char err[512];
-                        av_strerror(averr, err, 512);
-                        _readEnd = true;
-                        break;
-                    }
-                }
-                else
+            if (averr == AVERROR(EAGAIN))
+            {
+                _packet = _demuxer->NextPacket(_streamIndex);
+                if (!_packet.ptr)
                 {
                     _readEnd = true;
                     break;
                 }
+
+                if (_packet.ptr->stream_index != _streamIndex)
+                {
+                    _readEnd = true;
+                    break;
+                }
+                printf("packet [%lld] pos=%lld, pts=%lld, dur=%lld.\n", _packet.localIndex, _packet.ptr->pos, _packet.ptr->pts, _packet.ptr->duration);
+
+                averr = avcodec_send_packet(_codec.get(), _packet.ptr.get());
+                if (averr < 0)
+                {
+                    char err[512];
+                    av_strerror(averr, err, 512);
+                    _readEnd = true;
+                    break;
+                }
+            }
+            else
+            {
+                _readEnd = true;
+                break;
             }
         }
+
+        if (_frames.empty())
+            return {};
+
+        FpFrame frame = _frames.front();
+        _frames.pop();
+        return frame;
     }
+#endif
 }
 
 FpError AudioDecoderFP::ResetFormat(FpAudioFormat format)
