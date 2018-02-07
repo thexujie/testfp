@@ -4,12 +4,6 @@
 #include "avobject.h"
 
 
-#ifdef AP_LOG
-#define log(f,...) fprintf(f,...)
-#else
-#define log(f,...)
-#endif
-
 static void audio_context_uninit(audio_context * ptr)
 {
     if(!ptr)
@@ -49,9 +43,9 @@ m_outSampleRate(0), m_outBufferSamples(0)
         //    ::TerminateThread(m_hPlayThread, 0);
         m_hPlayThread = 0;
     }
-    m_outSampleFormat = AV_SAMPLE_FMT_S16;
+    m_outSampleFormat = AV_SAMPLE_FMT_FLT;
     m_outChannels = av_get_channel_layout_nb_channels(AV_CH_LAYOUT_STEREO);
-    m_sdlSampleFormat = AUDIO_S16LSB;
+    m_sdlSampleFormat = AUDIO_F32LSB;
     m_outPixelFormat = AV_PIX_FMT_BGRA;
 #ifdef AP_LOG
     m_logFile = _fsopen("../temp/out.txt", "wt", _SH_DENYWR);
@@ -97,7 +91,7 @@ int VideoPlayer::initSDL()
     SDL_AudioSpec desired_spec = {};
     SDL_AudioSpec obtained_spec = {};
     desired_spec.freq = 44100;
-    desired_spec.format = AUDIO_S16LSB;
+    desired_spec.format = m_sdlSampleFormat;
     desired_spec.channels = m_outChannels;
     desired_spec.silence = 0;
     desired_spec.samples = /*out_nb_samples*/4096;
@@ -831,7 +825,7 @@ void VideoPlayer::doMix(Uint8 * stream, int len)
     m_csPlayMix.unlock();
 }
 
-int VideoPlayer::doCombine(byte * data, int width, int height, int pitch, int & duration)
+int VideoPlayer::doCombine(char * data, int width, int height, int pitch, int & duration)
 {
     duration = 0;
     long long pts = timeGetTime() * TIME_BASE_MS;

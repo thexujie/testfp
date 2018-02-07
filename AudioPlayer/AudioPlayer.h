@@ -1,7 +1,7 @@
 #pragma once
 
 
-#define SDL_PLAY 1
+#define SDL_PLAY 0
 //#define AP_LOG
 
 class CSObject

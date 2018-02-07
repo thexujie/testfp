@@ -136,7 +136,7 @@ int XuVideoRenderD3D9::doRender()
         }
 
         int duration = 0;
-        m_player->doCombine((byte *)d3d_rect.pBits, cavansrDesc.Width, cavansrDesc.Height, d3d_rect.Pitch, duration);
+        m_player->doCombine((char *)d3d_rect.pBits, cavansrDesc.Width, cavansrDesc.Height, d3d_rect.Pitch, duration);
 
         hr = m_d3dSurface->UnlockRect();
         if(FAILED(hr))

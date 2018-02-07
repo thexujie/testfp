@@ -148,7 +148,7 @@ private:
 
     int doPlay();
     void doMix(Uint8 * stream, int len);
-    int doCombine(byte * data, int width, int height, int pitch, int & duration);
+    int doCombine(char * data, int width, int height, int pitch, int & duration);
 
     static unsigned __stdcall playThread(void * args);
     static void SDLCALL sdlMix(void * udata, Uint8 * stream, int len);

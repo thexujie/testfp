@@ -1,9 +1,6 @@
 #pragma once
 #include "IMedia.h"
 #include "avobject.h"
-#include <memory>
-#include <map>
-#include <functional>
 
 template<typename _Ty>
 using MpVector = std::vector<_Ty>;
@@ -11,47 +8,70 @@ using MpVector = std::vector<_Ty>;
 template<typename _Ty, size_t  _Size>
 using MpArray = std::array<_Ty, _Size>;
 
-template<class _Ty, void(Func)(_Ty * ptr)>
-struct default_delete2
-{	// default deleter for unique_ptr
-    constexpr default_delete2() _NOEXCEPT = default;
-
-
-    void operator()(_Ty * _Ptr) const _NOEXCEPT
-    {	// delete a pointer
-        static_assert(0 < sizeof(_Ty),
-            "can't delete an incomplete type");
-        Func(_Ptr);
-    }
-};
-
-
-class AVFormatContextDeleter
-{
-public:
-    AVFormatContextDeleter(AVFormatContext *& ptr){}
-};
-
 class MediaDemuxerFP : public IFFmpegDemuxer
 {
 public:
     MediaDemuxerFP();
     ~MediaDemuxerFP();
 
-    MpError LoadFromFile(const u8string & filePath);
+    FpError LoadFromFile(const u8string & filePath);
+    std::map<int, AVMediaType> GetStreamTypes() const;
+    FpAudioFormat GetAudioFormat(int streamId) const;
+    FpPacket NextPacket(int streamId);
 
 private:
-    std::shared_ptr<AVFormatContext> m_avformatContext;
+    void demuxerThread();
+
+private:
+    struct AvPacketQueue
+    {
+        std::queue<FpPacket> queue;
+        int64_t index;
+    };
+    std::shared_ptr<AVFormatContext> _avformatContext;
+    std::map<int, AvPacketQueue> _packets;
+    int64_t _packetIndex = 0;
+    std::mutex _mtxRead;
+    std::thread _thRead;
+    std::condition_variable _condRead;
+    std::condition_variable _condDemuxer;
+
+    std::atomic<bool> _readEnd = false;
+    int32_t _numMaxPackets = 16;
+    int32_t _numMinPackets = 8;
 };
 
-class MediaPlayerFP
+class AudioDecoderFP : public IAudioDecoderFP
 {
 public:
-    MediaPlayerFP();
-    ~MediaPlayerFP();
+    AudioDecoderFP(std::shared_ptr<IFFmpegDemuxer> demuxer, int32_t streamIndex);
+    ~AudioDecoderFP();
 
-    MpError LoadFromFile(const u8string & filePath);
+    std::shared_ptr<IFFmpegDemuxer> Demuxer() const;
+    int32_t StreamIndex() const;
+    FpAudioFormat GetOutputFormat() const;
+
+    FpFrame NextFrame();
+    FpError ResetFormat(FpAudioFormat format);
 
 private:
-    std::shared_ptr<AVFormatContext> m_avformatContext;
+    void decoderThread();
+
+private:
+    std::shared_ptr<IFFmpegDemuxer> _demuxer;
+    int32_t _streamIndex;
+
+    FpAudioFormat _inputFormat;
+    FpAudioFormat _outputFormat;
+
+    std::queue<FpFrame> _frames;
+
+    int64_t _frameIndex = 0;
+    std::mutex _mtxRead;
+    std::thread _thread;
+    std::condition_variable _condRead;
+    std::condition_variable _condDemuxer;
+    std::atomic<bool> _readEnd = false;
+    int32_t _minFrames = 8;
+    int32_t _maxFrames = 16;
 };

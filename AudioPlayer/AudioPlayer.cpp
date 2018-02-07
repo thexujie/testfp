@@ -49,9 +49,9 @@ m_outSampleRate(0), m_outBufferSamples(0)
         //    ::TerminateThread(m_hPlayThread, 0);
         m_hPlayThread = 0;
     }
-    m_outSampleFormat = AV_SAMPLE_FMT_S16;
+    m_outSampleFormat = AV_SAMPLE_FMT_FLT;
     m_outChannels = av_get_channel_layout_nb_channels(AV_CH_LAYOUT_STEREO);
-    m_sdlSampleFormat = AUDIO_S16LSB;
+    m_sdlSampleFormat = AUDIO_F32LSB;
 #ifdef AP_LOG
     m_logFile = _fsopen("../temp/out.txt", "wt", _SH_DENYWR);
 #endif
@@ -96,7 +96,7 @@ int AudioPlayer::initSDL()
     SDL_AudioSpec desired_spec = {};
     SDL_AudioSpec obtained_spec = {};
     desired_spec.freq = 44100;
-    desired_spec.format = AUDIO_S16LSB;
+    desired_spec.format = m_sdlSampleFormat;
     desired_spec.channels = m_outChannels;
     desired_spec.silence = 0;
     desired_spec.samples = /*out_nb_samples*/4096;
@@ -348,6 +348,7 @@ int AudioPlayer::doPlay()
                         //printf("index:%5d\t pts:%lld\t packet size:%d ptsOffset:%lld\n", udata.packetIndex, udata.avpacket->pts, udata.avpacket->size, udata.ptsOffset);
                         ++udata.packetIndex;
 
+                        printf("packet [%lld] pos=%lld, pts=%lld, dur=%lld.\n", 0i64, udata.avpacket->pos, udata.avpacket->pts, udata.avpacket->duration);
                         averr = avcodec_send_packet(udata.context.avcodecContext, udata.avpacket);
                         if(averr)
                         {
@@ -412,20 +413,20 @@ int AudioPlayer::doPlay()
 
                     //TODO
                     long long nb_samples_have = swr_get_out_samples(udata.context.swr, udata.sampleIndex == udata.context.sampleIndex ? udata.avframe->nb_samples : 0);
-                    if(udata.dtsBase)
-                    {
-                        long long dts = timeGetTime() * TIME_BASE_MS;
-                        long long nb_samples_sync = (dts - udata.dtsBase) * m_outSampleRate / TIME_BASE_S - udata.sampleIndex + (udata.decodeIndex - udata.playIndex) * m_outBufferSamples;
-                        if(nb_samples_sync > nb_samples_have)
-                        {
-                            log(m_logFile, "skip frame %lld samples, %lld-%lld-%lld\n", nb_samples_have, udata.packetIndex, udata.frameIndex, udata.sampleIndex);
-                            udata.context.sampleIndex = -1;
-                            udata.sampleIndex += nb_samples_have;
-                            swr_drop_output(udata.context.swr, nb_samples_have);
-                            av_frame_unref(udata.avframe);
-                            continue;
-                        }
-                    }
+                    //if(udata.dtsBase)
+                    //{
+                    //    long long dts = timeGetTime() * TIME_BASE_MS;
+                    //    long long nb_samples_sync = (dts - udata.dtsBase) * m_outSampleRate / TIME_BASE_S - udata.sampleIndex + (udata.decodeIndex - udata.playIndex) * m_outBufferSamples;
+                    //    if(nb_samples_sync > nb_samples_have)
+                    //    {
+                    //        log(m_logFile, "skip frame %lld samples, %lld-%lld-%lld\n", nb_samples_have, udata.packetIndex, udata.frameIndex, udata.sampleIndex);
+                    //        udata.context.sampleIndex = -1;
+                    //        udata.sampleIndex += nb_samples_have;
+                    //        swr_drop_output(udata.context.swr, nb_samples_have);
+                    //        av_frame_unref(udata.avframe);
+                    //        continue;
+                    //    }
+                    //}
 
                     long long nb_samples_need = buffer.sampleSize - buffer.sampleIndex;
                     long long nb_samples = nb_samples_have > nb_samples_need ? nb_samples_need : nb_samples_have;
