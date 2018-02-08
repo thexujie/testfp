@@ -684,34 +684,44 @@ SDL_RunAudio(void *devicep)
         }
         SDL_UnlockMutex(device->mixer_lock);
 
-        if (device->stream) {
+        if (device->stream)
+        {
             /* Stream available audio to device, converting/resampling. */
             /* if this fails...oh well. We'll play silence here. */
             SDL_AudioStreamPut(device->stream, data, data_len);
 
-            while (SDL_AudioStreamAvailable(device->stream) >= ((int) device->spec.size)) {
+            while (SDL_AudioStreamAvailable(device->stream) >= ((int)device->spec.size))
+            {
                 int got;
                 data = SDL_AtomicGet(&device->enabled) ? current_audio.impl.GetDeviceBuf(device) : NULL;
                 got = SDL_AudioStreamGet(device->stream, data ? data : device->work_buffer, device->spec.size);
                 SDL_assert((got < 0) || (got == device->spec.size));
 
-                if (data == NULL) {  /* device is having issues... */
+                if (data == NULL)
+                {  /* device is having issues... */
                     const Uint32 delay = ((device->spec.samples * 1000) / device->spec.freq);
                     SDL_Delay(delay);  /* wait for as long as this buffer would have played. Maybe device recovers later? */
-                } else {
-                    if (got != device->spec.size) {
+                }
+                else
+                {
+                    if (got != device->spec.size)
+                    {
                         SDL_memset(data, device->spec.silence, device->spec.size);
                     }
                     current_audio.impl.PlayDevice(device);
                     current_audio.impl.WaitDevice(device);
                 }
             }
-        } else if (data == device->work_buffer) {
+        }
+        else if (data == device->work_buffer)
+        {
             /* nothing to do; pause like we queued a buffer to play. */
             const Uint32 delay = ((device->spec.samples * 1000) / device->spec.freq);
             SDL_Delay(delay);
-        } else {  /* writing directly to the device. */
-            /* queue this buffer and wait for it to finish playing. */
+        }
+        else
+        {  /* writing directly to the device. */
+           /* queue this buffer and wait for it to finish playing. */
             current_audio.impl.PlayDevice(device);
             current_audio.impl.WaitDevice(device);
         }

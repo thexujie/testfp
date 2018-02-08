@@ -12,11 +12,6 @@
 static const GUID SDL_KSDATAFORMAT_SUBTYPE_PCM = { 0x00000001, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
 static const GUID SDL_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = { 0x00000003, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
 
-void swr_free_wrap(SwrContext * ptr)
-{
-    swr_free(&ptr);
-}
-
 #define REFTIMES_PER_SEC  10000000
 #define REFTIMES_PER_MILLISEC  10000
 REFERENCE_TIME hnsRequestedDuration = REFTIMES_PER_SEC / 100;
@@ -152,49 +147,51 @@ FpError DSoundAudioPlayerFP::Start()
 
     int64_t durationDefault = REFTIMES_PER_SEC / 20;
     int64_t durationMin = REFTIMES_PER_SEC / 20;
+    int64_t durationUse = REFTIMES_PER_SEC / 20;
 
     hr = audioClient->GetDevicePeriod(&durationDefault, &durationMin);
     if (FAILED(hr) || durationMin <= 0)
         return FpErrorGeneric;
 
     uint32_t audioClientFlags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-    hr = audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, audioClientFlags, 30 * 10000, 0, waveformat.get(), NULL);
+    hr = audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, audioClientFlags, durationMin, 0, waveformat.get(), NULL);
     if (FAILED(hr))
         return FpErrorGeneric;
 
-    uint32_t numTotalBufferedSamples = 0;
-    hr = audioClient->GetBufferSize(&numTotalBufferedSamples);
-    if (FAILED(hr) || numTotalBufferedSamples <= 0)
+    uint32_t numBufferedSamples = 0;
+    hr = audioClient->GetBufferSize(&numBufferedSamples);
+    if (FAILED(hr) || numBufferedSamples <= 0)
         return FpErrorGeneric;
 
-    uint32_t numPaddingBufferedSamples = 0;
-    hr = audioClient->GetCurrentPadding(&numPaddingBufferedSamples);
-    if (FAILED(hr) || numPaddingBufferedSamples < 0)
-        return FpErrorGeneric;
-
-    HANDLE audioEvent = CreateEventExW(NULL, NULL, 0, EVENT_MODIFY_STATE | SYNCHRONIZE);
-    //HANDLE audioEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if(!audioEvent)
-        return FpErrorGeneric;
-    hr = audioClient->SetEventHandle(audioEvent);
-    if (FAILED(hr))
+    HANDLE audioEvent = NULL;
+    if(audioClientFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK)
     {
-        CloseHandle(audioEvent);
-        return FpErrorGeneric;
+        audioEvent = CreateEventExW(NULL, NULL, 0, EVENT_MODIFY_STATE | SYNCHRONIZE);
+        //HANDLE audioEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+        if (!audioEvent)
+            return FpErrorGeneric;
+        hr = audioClient->SetEventHandle(audioEvent);
+        if (FAILED(hr))
+        {
+            CloseHandle(audioEvent);
+            return FpErrorGeneric;
+        }
     }
 
     com_ptr<struct IAudioRenderClient> audioRenderClient;
     hr = audioClient->GetService(__uuidof(IAudioRenderClient), reinterpret_cast<void**>(&audioRenderClient));
     if (FAILED(hr) || !audioRenderClient)
     {
-        CloseHandle(audioEvent);
+        if(audioEvent)
+            CloseHandle(audioEvent);
         return FpErrorGeneric;
     }
 
     hr = audioClient->Start();
     if (FAILED(hr))
     {
-        CloseHandle(audioEvent);
+        if (audioEvent)
+            CloseHandle(audioEvent);
         return FpErrorGeneric;
     }
 
@@ -217,7 +214,7 @@ FpError DSoundAudioPlayerFP::Start()
         else {}
     }
 
-    _numBufferedSamples = numTotalBufferedSamples - numPaddingBufferedSamples;
+    _numBufferedSamples = numBufferedSamples;
     double bufferDuration = (double)_numBufferedSamples / waveformat->nSamplesPerSec;
     _audioDevice = audioDevice;
     _audioClient = audioClient;
@@ -234,7 +231,7 @@ FpError DSoundAudioPlayerFP::Start()
     _format.sampleRate = waveformat->nSamplesPerSec;
     _format.sampleFormat = sampleFormat;
     _format.bits = waveformat->wBitsPerSample;
-    _format.numBuffers = _numBufferedSamples;
+    _format.numBufferedSamples = _numBufferedSamples;
     FpError err = _decoder->ResetFormat(_format);
     if (err)
         return FpErrorGeneric;
@@ -336,83 +333,76 @@ FpError DSoundAudioPlayerFP::WaitForStop()
 
 void DSoundAudioPlayerFP::playThread()
 {
+    thread_set_name(0, "playThread");
+
     if (!_decoder || !_audioRenderClient)
         return;
 
-    DWORD taskIndex = 0;
-    HANDLE hTask = AvSetMmThreadCharacteristics(TEXT("Pro Audio"), &taskIndex);
+    //DWORD taskIndex = 0;
+    //HANDLE hTask = AvSetMmThreadCharacteristics(TEXT("Pro Audio"), &taskIndex);
+    ::SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
     int averr = 0;
     HRESULT hr = S_OK;
     HANDLE audioEvent = (HANDLE)_audioEvent;
-    while(true)
+    uint32_t bytesPerSample = av_get_bytes_per_sample(_format.sampleFormat) * _format.chanels;
+
+    FpAudioBuffer buffer;
+    uint32_t numBuffersPlayed = 0;
+    while(_state >= 0)
     {
-        uint32_t wait = ::WaitForSingleObject(audioEvent, INFINITE);
-        if(wait == WAIT_OBJECT_0)
+        uint32_t numSamplesTotal = _numBufferedSamples / _numBufferedSamplesCount;
+        uint8_t * mmBuffer = nullptr;
+        hr = _audioRenderClient->GetBuffer(numSamplesTotal, &mmBuffer);
+        if (!mmBuffer)
+            continue;
+
+        uint32_t numSamplesRenderd = 0;
+        while(numSamplesRenderd < numSamplesTotal && _state >= 0)
         {
-            BYTE * pData = nullptr;
-
-            uint32_t numSamplesTotal = _numBufferedSamples;
-            hr = _audioRenderClient->GetBuffer(numSamplesTotal, &pData);
-            if (!pData)
-                continue;
-
-            uint32_t numSamplesRenderd = 0;
-            while(numSamplesRenderd < numSamplesTotal)
+            uint32_t numSamplesNeeded = numSamplesTotal - numSamplesRenderd;
+            uint32_t numSamplesHave = buffer.numSamples - numBuffersPlayed;
+            if(numSamplesHave == 0)
             {
-                uint32_t numSamplesNeeded = numSamplesTotal - numSamplesRenderd;
-                if(!_swr)
+                numBuffersPlayed = 0;
+                buffer = _decoder->NextBuffer();
+                if(buffer.numSamples == 0)
                 {
-                    FpAudioFormat _inputFormat = _decoder->GetOutputFormat();
-                    {
-                        int64_t in_channel_layout = av_get_default_channel_layout(_inputFormat.chanels);
-                        int64_t out_channel_layout = av_get_default_channel_layout(_format.chanels);
-
-#if LIBSWRESAMPLE_VERSION_MAJOR >= 3
-                        _swr.reset(swr_alloc(), swr_free_wrap);
-
-                        av_opt_set_int(_swr.get(), "in_channel_layout", in_channel_layout, 0);
-                        av_opt_set_int(_swr.get(), "in_sample_rate", _inputFormat.sampleRate, 0);
-                        av_opt_set_sample_fmt(_swr.get(), "in_sample_fmt", _inputFormat.sampleFormat, 0);
-
-                        av_opt_set_int(_swr.get(), "out_channel_layout", out_channel_layout, 0);
-                        av_opt_set_int(_swr.get(), "out_sample_rate", _format.sampleRate, 0);
-                        av_opt_set_sample_fmt(_swr.get(), "out_sample_fmt", _format.sampleFormat, 0);
-#else
-                        _swr.reset(swr_alloc_set_opts(nulptr, out_channel_layout, _format.sampleFormat, _format.sampleRate,
-                            in_channel_layout, _inputFormat.sampleFormat, _inputFormat.sampleRate, 0, NULL), swr_free_wrap);
-#endif
-                        averr = swr_init(_swr.get());
-                        if (averr < 0)
-                            break;
-                    }
+                    _state = FpErrorPending;
+                    break;
                 }
-
-                uint8_t * data = pData + numSamplesRenderd * av_get_bytes_per_sample(_format.sampleFormat) * _format.chanels;
-                averr = swr_convert(_swr.get(), &data, numSamplesNeeded, 0, 0);
-                if(averr == 0)
-                {
-                    _lastFrame = _decoder->NextFrame();
-                    if (!_lastFrame.ptr)
-                        break;
-
-                    //printf("frame %lld\n", _lastFrame.index);
-                    averr = swr_convert(_swr.get(), &data, numSamplesNeeded, (const uint8_t**)_lastFrame.ptr->data, _lastFrame.ptr->nb_samples);
-                    if (averr < 0)
-                        break;
-                }
-
-                if(averr > 0)
-                {
-                    numSamplesRenderd += averr;
-                }
+                numSamplesHave = buffer.numSamples;
             }
-            hr = _audioRenderClient->ReleaseBuffer(_numBufferedSamples, 0);
-            if(FAILED(hr))
+            uint32_t numSamples = numSamplesHave < numSamplesNeeded ? numSamplesHave : numSamplesNeeded;
+            if(numSamples > 0)
             {
-                printf("error ReleaseBuffer!");
+                memcpy(mmBuffer + (numSamplesRenderd * bytesPerSample), buffer.data.get() + (numBuffersPlayed * bytesPerSample), numSamples * bytesPerSample);
+                numSamplesRenderd += numSamples;
+                numBuffersPlayed += numSamples;
+            }
+        }
+
+        hr = _audioRenderClient->ReleaseBuffer(numSamplesRenderd, 0);
+        if(FAILED(hr))
+        {
+            printf("error ReleaseBuffer!");
+            break;
+        }
+
+        uint32_t numSamplesPadding = 0;
+        while (_state >= 0)
+        {
+            hr = _audioClient->GetCurrentPadding(&numSamplesPadding);
+            if (FAILED(hr))
+            {
+                _state = FpErrorGeneric;
                 break;
             }
+
+            if (numSamplesPadding <= numSamplesTotal)
+                break;
+
+            Sleep(((numSamplesPadding - numSamplesTotal) * 1000) / _format.sampleRate);
         }
     }
 

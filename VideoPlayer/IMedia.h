@@ -9,8 +9,8 @@
 #include <atomic>
 #include "com_ptr.h"
 
-const int TIME_BASE_S = AV_TIME_BASE;
-const int TIME_BASE_MS = AV_TIME_BASE / 1000;
+const int32_t TIME_BASE_S = AV_TIME_BASE;
+const int32_t TIME_BASE_MS = AV_TIME_BASE / 1000;
 
 #include <memory>
 
@@ -38,24 +38,21 @@ struct FpPacket
     int64_t localIndex;
 };
 
-struct FpFrame
+struct FpAudioBuffer
 {
-    std::shared_ptr<AVFrame> ptr;
     int64_t index = 0;
-    int64_t pos = 0;
+    std::shared_ptr<uint8_t> data;
+    int64_t numSamples = 0;
 };
 
 struct FpAudioFormat
 {
-    int32_t chanels;
-    int32_t sampleRate;
-    AVSampleFormat sampleFormat;
-    int32_t bits;
-    int32_t numBuffers;
-    AVCodecID codecId;
-    int32_t blockAlign;
-    int32_t frameSize;
-    int32_t padding;
+    int32_t chanels = 0;
+    int32_t sampleRate = 0;
+    AVSampleFormat sampleFormat = AV_SAMPLE_FMT_NONE;
+    int32_t bits = 0;
+    int32_t numBufferedSamples = 0;
+    AVCodecID codecId = AV_CODEC_ID_NONE;
 };
 
 class IFFmpegDemuxer
@@ -63,9 +60,10 @@ class IFFmpegDemuxer
 public:
     virtual ~IFFmpegDemuxer() = default;
     virtual FpError LoadFromFile(const u8string & filePath) = 0;
-    virtual std::map<int, AVMediaType> GetStreamTypes() const = 0;
-    virtual FpAudioFormat GetAudioFormat(int streamId) const = 0;
-    virtual FpPacket NextPacket(int streamId) = 0;
+    virtual FpError State(int32_t streamId) const = 0;
+    virtual std::map<int32_t, AVMediaType> GetStreamTypes() const = 0;
+    virtual FpAudioFormat GetAudioFormat(int32_t streamId) const = 0;
+    virtual FpPacket NextPacket(int32_t streamId) = 0;
 };
 
 class IAudioDecoderFP
@@ -74,8 +72,7 @@ public:
     virtual ~IAudioDecoderFP() = default;
     virtual std::shared_ptr<IFFmpegDemuxer> Demuxer() const = 0;
     virtual int32_t StreamIndex() const = 0;
-    virtual FpAudioFormat GetOutputFormat() const = 0;
-    virtual FpFrame NextFrame() = 0;
+    virtual FpAudioBuffer NextBuffer() = 0;
     virtual FpError ResetFormat(FpAudioFormat format) = 0;
 };
 
@@ -95,7 +92,7 @@ class IVideoPlayer
 {
 public:
     virtual ~IVideoPlayer() = default;
-    virtual int doCombine(char * data, int width, int height, int strike, int & duration) = 0;
+    virtual int32_t doCombine(char * data, int32_t width, int32_t height, int32_t strike, int32_t & duration) = 0;
 };
 
 class IVideoRender

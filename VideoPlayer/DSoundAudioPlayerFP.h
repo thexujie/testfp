@@ -30,9 +30,11 @@ private:
     com_ptr<struct IAudioRenderClient> _audioRenderClient;
     intmax_t _audioEvent = 0;
     uint32_t _numBufferedSamples = 0;
+    uint32_t _numBufferedSamplesCount = 2;
     std::vector<uint8_t> _audioBuffers;
     FpAudioFormat _format;
-    FpFrame _lastFrame;
+
+    std::atomic<FpError> _state = FpErrorOK;
 
     std::shared_ptr<SwrContext> _swr;
 };

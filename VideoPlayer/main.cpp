@@ -15,46 +15,25 @@ std::string data;
 bool ready = false;
 bool processed = false;
 
-void worker_thread()
-{
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    std::unique_lock<std::mutex> lk(m);
-    cv.wait(lk);
-
-    // after the wait, we own the lock.
-    std::cout << "Worker thread is processing data\n";
-    data += " after processing";
-
-    // Send data back to main()
-    processed = true;
-    std::cout << "Worker thread signals data processing completed\n";
-
-    // Manual unlocking is done before notifying, to avoid waking up
-    // the waiting thread only to block again (see notify_one for details)
-    lk.unlock();
-    cv.notify_one();
-}
-
 int _tmain2(int argc, char* argv[])
 {
+    SetConsoleOutputCP(CP_ACP);
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     if (hr == RPC_E_CHANGED_MODE)
     {
         hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     }
 
-    /* S_FALSE means success, but someone else already initialized. */
-    /* You still need to call CoUninitialize in this case! */
     if (hr == S_FALSE)
-    {
         return S_OK;
-    }
 
     av_register_all();
-    
+    //av_log_set_level(AV_LOG_TRACE);
+
     std::shared_ptr<IFFmpegDemuxer> demuxer = std::make_shared<MediaDemuxerFP>();
     //demuxer->LoadFromFile("F:\\files\\videos\\lig.mp4");
-    demuxer->LoadFromFile("F:\\files\\videos\\绑架者.mkv");
+    //demuxer->LoadFromFile("F:\\files\\videos\\绑架者.mkv");
+    demuxer->LoadFromFile("F:\\files\\videos\\ww.mkv");
     //demuxer->LoadFromFile("../res/temp/weibokong.flac");
     auto types = demuxer->GetStreamTypes();
     int32_t audioIndex = -1;
@@ -80,16 +59,19 @@ int _tmain2(int argc, char* argv[])
 
     std::shared_ptr<IAudioDecoderFP> audioDecoder = std::make_shared<AudioDecoderFP>(demuxer, audioIndex);
 
-    int frameIndex = 0;
-    while (frameIndex >= 0)
-    {
-        auto frame = audioDecoder->NextFrame();
-        if (!frame.ptr)
-            break;
-        printf("frame [%lld][%d]\n", frame.index, frameIndex++);
-        //Sleep(100);
-    }
-    Sleep(9999999);
+    //int frameIndex = 0;
+    //while (frameIndex >= 0)
+    //{
+    //    auto frame = audioDecoder->NextFrame();
+    //    if (!frame.ptr)
+    //    {
+    //        printf("xxxxxxxxxxxxxxxxxxxxxxxxxxx ended!");
+    //        break;
+    //    }
+    //    printf("frame [%lld][%d]\n", frame.index, frameIndex++);
+    //    //Sleep(100);
+    //}
+    //Sleep(9999999);
 
 
     std::shared_ptr<DSoundAudioPlayerFP> player = std::make_shared<DSoundAudioPlayerFP>(audioDecoder);
@@ -102,8 +84,6 @@ int _tmain2(int argc, char* argv[])
 
 int _tmain(int argc, char* argv[])
 {
-    SetConsoleOutputCP(CP_UTF8);
-
     _CrtMemState stateOld, stateNew, stateDiff;
     _CrtMemCheckpoint(&stateOld);
     _tmain2(argc, argv);
