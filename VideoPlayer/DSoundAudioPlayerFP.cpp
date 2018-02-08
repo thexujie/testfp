@@ -338,9 +338,9 @@ void DSoundAudioPlayerFP::playThread()
     if (!_decoder || !_audioRenderClient)
         return;
 
-    //DWORD taskIndex = 0;
-    //HANDLE hTask = AvSetMmThreadCharacteristics(TEXT("Pro Audio"), &taskIndex);
-    ::SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    DWORD taskIndex = 0;
+    HANDLE hTask = AvSetMmThreadCharacteristics(TEXT("Pro Audio"), &taskIndex);
+    //::SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
     int averr = 0;
     HRESULT hr = S_OK;

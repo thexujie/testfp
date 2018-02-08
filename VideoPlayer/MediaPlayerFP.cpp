@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "MediaPlayerFP.h"
 
-#define DEMUXER_SYNC 0
+#define DEMUXER_SYNC 1
 #define DECODE_SYNC 1
 
 void avformat_free_context_2(AVFormatContext *& ptr)
@@ -375,27 +375,9 @@ FpAudioBuffer AudioDecoderFP::NextBuffer()
     if(_thread.get_id() == std::thread::id())
         _thread = std::thread(std::bind(&AudioDecoderFP::decoderThread, this));
 
+    std::unique_lock<std::mutex> lock(_mtxRead);
+    if (!_buffers.empty())
     {
-        std::lock_guard<std::mutex> lock(_mtxRead);
-        if (!_buffers.empty())
-        {
-            FpAudioBuffer buffer = _buffers.front();
-            _buffers.pop_front();
-
-            if (_state >= 0 && _buffers.size() < _minFrames)
-                _condDecoder.notify_one();
-
-            return buffer;
-        }
-    }
-    {
-        std::unique_lock<std::mutex> lock(_mtxRead);
-        _condDecoder.notify_one();
-        _condRead.wait(lock, [this] {return !_buffers.empty() || _state < 0; });
-
-        if (_buffers.empty())
-            return {};
-
         FpAudioBuffer buffer = _buffers.front();
         _buffers.pop_front();
 
@@ -404,8 +386,22 @@ FpAudioBuffer AudioDecoderFP::NextBuffer()
 
         return buffer;
     }
+
+    _condDecoder.notify_one();
+    _condRead.wait(lock, [this] {return !_buffers.empty() || _state < 0; });
+
+    if (_buffers.empty())
+        return {};
+
+    FpAudioBuffer buffer = _buffers.front();
+    _buffers.pop_front();
+
+    if (_state >= 0 && _buffers.size() < _minFrames)
+        _condDecoder.notify_one();
+
+    return buffer;
 #else
-    if(!_codec)
+    if (!_codec)
     {
         AVCodec * avcodecAudio = avcodec_find_decoder(_inputFormat.codecId);
         if (!avcodecAudio)
@@ -487,7 +483,7 @@ FpError AudioDecoderFP::ResetFormat(FpAudioFormat format)
 void AudioDecoderFP::decoderThread()
 {
     thread_set_name(0, "decoderThread");
-    thread_prom();
+    //thread_prom();
 
     if (!_demuxer || !_inputFormat.codecId || _outputFormat.sampleFormat == AV_SAMPLE_FMT_NONE)
     {
@@ -622,6 +618,14 @@ void AudioDecoderFP::decoderThread()
 
             buffer.numSamples = numSamples;
             buffers.push_back(buffer);
+
+
+            std::unique_lock<std::mutex> lock(_mtxRead, std::try_to_lock);
+            if (lock.owns_lock() && _buffers.size() < _minFrames)
+            {
+                _buffers.splice(_buffers.end(), buffers);
+                _condRead.notify_all();
+            }
         }
 
         std::unique_lock<std::mutex> lock(_mtxRead);
