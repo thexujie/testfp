@@ -57,7 +57,11 @@ int _tmain2(int argc, char* argv[])
     //}
     //Sleep(9999999);
 
-    std::shared_ptr<IAudioDecoderFP> audioDecoder = std::make_shared<AudioDecoderFP>(demuxer, audioIndex);
+    std::shared_ptr<IAudioPacketStreamFP> audioStream = demuxer->GetAudioStream(audioIndex);
+    if (!audioStream)
+        return 0;
+
+    std::shared_ptr<IAudioDecoderFP> audioDecoder = std::make_shared<AudioDecoderFP>(audioStream);
 
     //int frameIndex = 0;
     //while (frameIndex >= 0)
