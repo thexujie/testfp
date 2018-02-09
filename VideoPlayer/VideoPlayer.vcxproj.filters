@@ -10,8 +10,8 @@
     <ClInclude Include="CSObject.h" />
     <ClInclude Include="MediaPlayerFP.h" />
     <ClInclude Include="FpThread.h" />
-    <ClInclude Include="DSoundAudioPlayerFP.h" />
     <ClInclude Include="com_ptr.h" />
+    <ClInclude Include="MMAudioPlayerFP.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
@@ -20,7 +20,7 @@
     <ClCompile Include="VideoRender.cpp" />
     <ClCompile Include="MediaPlayerFP.cpp" />
     <ClCompile Include="FpThread.cpp" />
-    <ClCompile Include="DSoundAudioPlayerFP.cpp" />
     <ClCompile Include="com_ptr.cpp" />
+    <ClCompile Include="MMAudioPlayerFP.cpp" />
   </ItemGroup>
 </Project>

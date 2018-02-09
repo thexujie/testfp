@@ -1,6 +1,6 @@
 ﻿#include "stdafx.h"
 #include "MediaPlayerFP.h"
-#include "DSoundAudioPlayerFP.h"
+#include "MMAudioPlayerFP.h"
 
 #include <iostream>
 #include <string>
@@ -18,7 +18,7 @@ bool processed = false;
 int _tmain2(int argc, char* argv[])
 {
     SetConsoleOutputCP(CP_ACP);
-    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     if (hr == RPC_E_CHANGED_MODE)
     {
         hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
@@ -74,7 +74,7 @@ int _tmain2(int argc, char* argv[])
     //Sleep(9999999);
 
 
-    std::shared_ptr<DSoundAudioPlayerFP> player = std::make_shared<DSoundAudioPlayerFP>(audioDecoder);
+    std::shared_ptr<MMAudioPlayerFP> player = std::make_shared<MMAudioPlayerFP>(audioDecoder);
     auto devices = player->GetDeviceDescs();
     player->Start();
     player->WaitForStop();

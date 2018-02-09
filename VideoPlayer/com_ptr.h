@@ -43,6 +43,15 @@ public:
         return *this;
     }
 
+    void reset()
+    {
+        if (_ptr)
+        {
+            _ptr->Release();
+            _ptr = nullptr;
+        }
+    }
+
 private:
     UT * _ptr = nullptr;
 };

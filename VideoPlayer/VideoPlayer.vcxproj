@@ -159,7 +159,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="com_ptr.h" />
-    <ClInclude Include="DSoundAudioPlayerFP.h" />
+    <ClInclude Include="MMAudioPlayerFP.h" />
     <ClInclude Include="FpThread.h" />
     <ClInclude Include="IMedia.h" />
     <ClInclude Include="MediaPlayerFP.h" />
@@ -174,7 +174,7 @@
   <ItemGroup>
     <ClInclude Include="CSObject.h" />
     <ClCompile Include="com_ptr.cpp" />
-    <ClCompile Include="DSoundAudioPlayerFP.cpp" />
+    <ClCompile Include="MMAudioPlayerFP.cpp" />
     <ClCompile Include="FpThread.cpp" />
     <ClCompile Include="MediaPlayerFP.cpp" />
     <ClCompile Include="VideoPlayer.cpp">

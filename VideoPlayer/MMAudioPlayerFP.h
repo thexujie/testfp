@@ -8,18 +8,21 @@ struct MMDeviceDesc
     u8string friendlyName;
 };
 
-class DSoundAudioPlayerFP : public IAudioPlayerFP
+class MMAudioPlayerFP : public IAudioPlayerFP
 {
 public:
-    DSoundAudioPlayerFP(std::shared_ptr<IAudioDecoderFP> decoder);
-    ~DSoundAudioPlayerFP();
+    MMAudioPlayerFP(std::shared_ptr<IAudioDecoderFP> decoder);
+    ~MMAudioPlayerFP();
 
     std::vector<MMDeviceDesc> GetDeviceDescs();
-    FpError GetDeviceDesc(com_ptr<struct IMMDevice> device, MMDeviceDesc & desc);
-    FpError Start();
-    FpError WaitForStop();
+    FpState GetDeviceDesc(com_ptr<struct IMMDevice> device, MMDeviceDesc & desc);
+    FpState Start();
+    FpState WaitForStop();
 private:
+    FpState resetDevice();
+    FpState initialDevice();
     void playThread();
+
 private:
     std::shared_ptr<IAudioDecoderFP> _decoder;
     std::thread _thPlay;
@@ -28,13 +31,14 @@ private:
     com_ptr<struct IMMDevice> _audioDevice;
     com_ptr<struct IAudioClient> _audioClient;
     com_ptr<struct IAudioRenderClient> _audioRenderClient;
+
     intmax_t _audioEvent = 0;
     uint32_t _numBufferedSamples = 0;
     uint32_t _numBufferedSamplesCount = 2;
     std::vector<uint8_t> _audioBuffers;
     FpAudioFormat _format;
 
-    std::atomic<FpError> _state = FpErrorOK;
+    std::atomic<FpState> _state = FpStateOK;
 
     std::shared_ptr<SwrContext> _swr;
 };

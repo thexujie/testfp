@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "DSoundAudioPlayerFP.h"
+#include "MMAudioPlayerFP.h"
 
 //#include <dsound.h>
 #include <mmdeviceapi.h>
@@ -17,13 +17,13 @@ static const GUID SDL_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = { 0x00000003, 0x0000, 0x
 REFERENCE_TIME hnsRequestedDuration = REFTIMES_PER_SEC / 100;
 
 
-DSoundAudioPlayerFP::DSoundAudioPlayerFP(std::shared_ptr<IAudioDecoderFP> decoder)
+MMAudioPlayerFP::MMAudioPlayerFP(std::shared_ptr<IAudioDecoderFP> decoder)
     : _decoder(decoder)
 {
 }
 
 
-DSoundAudioPlayerFP::~DSoundAudioPlayerFP()
+MMAudioPlayerFP::~MMAudioPlayerFP()
 {
     if(_audioEvent)
     {
@@ -32,7 +32,7 @@ DSoundAudioPlayerFP::~DSoundAudioPlayerFP()
     }
 }
 
-std::vector<MMDeviceDesc> DSoundAudioPlayerFP::GetDeviceDescs()
+std::vector<MMDeviceDesc> MMAudioPlayerFP::GetDeviceDescs()
 {
     std::vector<MMDeviceDesc> descs;
 
@@ -62,7 +62,7 @@ std::vector<MMDeviceDesc> DSoundAudioPlayerFP::GetDeviceDescs()
         if (FAILED(hr) || !device)
             continue;
 
-        FpError err = GetDeviceDesc(device, desc);
+        FpState err = GetDeviceDesc(device, desc);
         if (err)
             continue;
 
@@ -72,16 +72,16 @@ std::vector<MMDeviceDesc> DSoundAudioPlayerFP::GetDeviceDescs()
     return descs;
 }
 
-FpError DSoundAudioPlayerFP::GetDeviceDesc(com_ptr<struct IMMDevice> device, MMDeviceDesc & desc)
+FpState MMAudioPlayerFP::GetDeviceDesc(com_ptr<struct IMMDevice> device, MMDeviceDesc & desc)
 {
     if (!device)
-        return FpErrorNullptr;
+        return FpStateNullptr;
 
     HRESULT hr = S_OK;
     LPWSTR devid = NULL;
     hr = device->GetId(&devid);
     if (FAILED(hr))
-        return FpErrorInner;
+        return FpStateInner;
 
     u8string strDevid = ws2u8(devid, -1);
     CoTaskMemFree(devid);
@@ -89,7 +89,7 @@ FpError DSoundAudioPlayerFP::GetDeviceDesc(com_ptr<struct IMMDevice> device, MMD
     com_ptr<IPropertyStore> props;
     hr = device->OpenPropertyStore(STGM_READ, &props);
     if (FAILED(hr) || !props)
-        return FpErrorInner;
+        return FpStateInner;
 
     PROPVARIANT var;
     PropVariantInit(&var);
@@ -97,7 +97,7 @@ FpError DSoundAudioPlayerFP::GetDeviceDesc(com_ptr<struct IMMDevice> device, MMD
     if (FAILED(hr))
     {
         PropVariantClear(&var);
-        return FpErrorInner;
+        return FpStateInner;
     }
 
     u8string strFriendlyName = ws2u8(var.pwszVal, -1);
@@ -105,76 +105,104 @@ FpError DSoundAudioPlayerFP::GetDeviceDesc(com_ptr<struct IMMDevice> device, MMD
 
     desc.devid = strDevid;
     desc.friendlyName = strFriendlyName;
-    return FpErrorOK;
+    return FpStateOK;
 }
 
-FpError DSoundAudioPlayerFP::Start()
+FpState MMAudioPlayerFP::Start()
 {
     if (!_decoder)
-        return FpErrorBadData;
+        return FpStateBadData;
 
     if (_thPlay.joinable())
-        return FpErrorOK;
-
-    HRESULT hr = S_OK;
+        return FpStateOK;
 
     if (!_enumerator)
     {
         HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_INPROC_SERVER, __uuidof(IMMDeviceEnumerator), reinterpret_cast<void **>(&_enumerator));
         if (FAILED(hr) || !_enumerator)
-            return FpErrorGeneric;
+            return FpStateGeneric;
     }
 
+    _thPlay = std::thread(std::bind(&MMAudioPlayerFP::playThread, this));
+
+    return FpStateOK;
+}
+
+FpState MMAudioPlayerFP::WaitForStop()
+{
+    if (_thPlay.get_id() == std::thread::id())
+        return FpStateOK;
+
+    _thPlay.join();
+    return FpStateNotNow;
+}
+
+FpState MMAudioPlayerFP::resetDevice()
+{
+    _audioClient->Stop();
+    _audioRenderClient.reset();
+    _audioClient.reset();
+    _audioDevice.reset();
+    _state = initialDevice();
+    if (_state < 0)
+        return _state;
+    return _decoder->WaitForFrames(std::numeric_limits<uint32_t>::max());
+}
+
+FpState MMAudioPlayerFP::initialDevice()
+{
+    if (!_enumerator)
+    {
+        _state = FpStateNullptr;
+        return FpStateNullptr;
+    }
+
+    HRESULT hr = S_OK;
     com_ptr<IMMDevice> audioDevice;
     hr = _enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &audioDevice);
     if (FAILED(hr) || !audioDevice)
-        return FpErrorGeneric;
-
-    MMDeviceDesc deviceDesc = {};
-    GetDeviceDesc(audioDevice, deviceDesc);
-    printf("use %s <%s>.\n", deviceDesc.friendlyName.c_str(), deviceDesc.devid.c_str());
+        return FpStateGeneric;
 
     com_ptr<struct IAudioClient> audioClient;
     hr = audioDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, NULL, reinterpret_cast<void **>(&audioClient));
     if (FAILED(hr) || !audioClient)
-        return FpErrorGeneric;
+        return FpStateGeneric;
 
     WAVEFORMATEX * __waveformat = nullptr;
     audioClient->GetMixFormat(&__waveformat);
     if (FAILED(hr) || !__waveformat)
-        return FpErrorGeneric;
+        return FpStateGeneric;
     std::unique_ptr<WAVEFORMATEX, decltype(CoTaskMemFree)*> waveformat(__waveformat, CoTaskMemFree);
 
     int64_t durationDefault = REFTIMES_PER_SEC / 20;
     int64_t durationMin = REFTIMES_PER_SEC / 20;
-    int64_t durationUse = REFTIMES_PER_SEC / 20;
 
     hr = audioClient->GetDevicePeriod(&durationDefault, &durationMin);
     if (FAILED(hr) || durationMin <= 0)
-        return FpErrorGeneric;
+        return FpStateGeneric;
 
     uint32_t audioClientFlags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
     hr = audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, audioClientFlags, durationMin, 0, waveformat.get(), NULL);
     if (FAILED(hr))
-        return FpErrorGeneric;
+        return FpStateGeneric;
 
     uint32_t numBufferedSamples = 0;
     hr = audioClient->GetBufferSize(&numBufferedSamples);
     if (FAILED(hr) || numBufferedSamples <= 0)
-        return FpErrorGeneric;
+        return FpStateGeneric;
 
     HANDLE audioEvent = NULL;
-    if(audioClientFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK)
+    if (audioClientFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK)
     {
         audioEvent = CreateEventExW(NULL, NULL, 0, EVENT_MODIFY_STATE | SYNCHRONIZE);
         //HANDLE audioEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
         if (!audioEvent)
-            return FpErrorGeneric;
+            return FpStateGeneric;
         hr = audioClient->SetEventHandle(audioEvent);
         if (FAILED(hr))
         {
             CloseHandle(audioEvent);
-            return FpErrorGeneric;
+            return FpStateGeneric;
         }
     }
 
@@ -182,9 +210,9 @@ FpError DSoundAudioPlayerFP::Start()
     hr = audioClient->GetService(__uuidof(IAudioRenderClient), reinterpret_cast<void**>(&audioRenderClient));
     if (FAILED(hr) || !audioRenderClient)
     {
-        if(audioEvent)
+        if (audioEvent)
             CloseHandle(audioEvent);
-        return FpErrorGeneric;
+        return FpStateGeneric;
     }
 
     hr = audioClient->Start();
@@ -192,7 +220,7 @@ FpError DSoundAudioPlayerFP::Start()
     {
         if (audioEvent)
             CloseHandle(audioEvent);
-        return FpErrorGeneric;
+        return FpStateGeneric;
     }
 
     AVSampleFormat sampleFormat = AV_SAMPLE_FMT_NONE;
@@ -221,121 +249,36 @@ FpError DSoundAudioPlayerFP::Start()
     _audioRenderClient = audioRenderClient;
     _audioEvent = (intmax_t)audioEvent;
 
-    //BYTE * pData = nullptr;
-    //hr = audioRenderClient->GetBuffer(numBufferedSamples, &pData);
-    //hr = audioRenderClient->ReleaseBuffer(numBufferedSamples, 0);
-    //hr = audioRenderClient->GetBuffer(numBufferedSamples, &pData);
-    //hr = audioRenderClient->ReleaseBuffer(numBufferedSamples, 0);
-
     _format.chanels = waveformat->nChannels;
     _format.sampleRate = waveformat->nSamplesPerSec;
     _format.sampleFormat = sampleFormat;
     _format.bits = waveformat->wBitsPerSample;
     _format.numBufferedSamples = _numBufferedSamples;
-    FpError err = _decoder->ResetFormat(_format);
-    if (err)
-        return FpErrorGeneric;
+    FpState err = _decoder->SetOutputFormat(_format);
+    if (err < 0)
+        return err;
 
-    _thPlay = std::thread(std::bind(&DSoundAudioPlayerFP::playThread, this));
-#if 0
-    {
-        int averr = 0;
-        HRESULT hr = S_OK;
-        HANDLE audioEvent = (HANDLE)_audioEvent;
-        while (true)
-        {
-            uint32_t wait = ::WaitForSingleObject(audioEvent, INFINITE);
-            if (wait == WAIT_OBJECT_0)
-            {
-                BYTE * pData = nullptr;
-                uint32_t numBufferedSamplesTotal = _numBufferedSamples;
-                uint32_t numBufferedSamples = 0;
-                hr = _audioRenderClient->GetBuffer(numBufferedSamplesTotal, &pData);
-                if (!pData)
-                    continue;
-
-                while (numBufferedSamples < numBufferedSamplesTotal)
-                {
-                    uint32_t numNeeded = numBufferedSamplesTotal - numBufferedSamples;
-
-                    if (!_swr)
-                    {
-                        FpAudioFormat _inputFormat = _decoder->GetOutputFormat();
-                        {
-                            int64_t in_channel_layout = av_get_default_channel_layout(_inputFormat.chanels);
-                            int64_t out_channel_layout = av_get_default_channel_layout(_format.chanels);
-
-#if LIBSWRESAMPLE_VERSION_MAJOR >= 3
-                            //_swr.reset(swr_alloc(), swr_free_wrap);
-
-                            //av_opt_set_int(_swr.get(), "in_channel_layout", in_channel_layout, 0);
-                            //av_opt_set_int(_swr.get(), "in_sample_rate", _inputFormat.sampleRate, 0);
-                            //av_opt_set_sample_fmt(_swr.get(), "in_sample_fmt", _inputFormat.sampleFormat, 0);
-
-                            //av_opt_set_int(_swr.get(), "out_channel_layout", out_channel_layout, 0);
-                            //av_opt_set_int(_swr.get(), "out_sample_rate", _format.sampleRate, 0);
-                            //av_opt_set_sample_fmt(_swr.get(), "out_sample_fmt", _format.sampleFormat, 0);
-
-                            _swr.reset(swr_alloc_set_opts(nullptr, out_channel_layout, _format.sampleFormat, _format.sampleRate,
-                                in_channel_layout, _inputFormat.sampleFormat, _inputFormat.sampleRate, 0, NULL), swr_free_wrap);
-#else
-                            _swr.reset(swr_alloc_set_opts(nullptr, out_channel_layout, _format.sampleFormat, _format.sampleRate,
-                                in_channel_layout, _inputFormat.sampleFormat, _inputFormat.sampleRate, 0, NULL), swr_free_wrap);
-#endif
-                            averr = swr_init(_swr.get());
-                            if (averr < 0)
-                                break;
-                        }
-                    }
-
-                    uint8_t * data = pData + numBufferedSamples * av_get_bytes_per_sample(_format.sampleFormat) * _format.chanels;
-                    averr = swr_convert(_swr.get(), &data, numNeeded, 0, 0);
-                    if (averr < 0)
-                        break;
-
-                    if (averr == 0)
-                    {
-                        _lastFrame = _decoder->NextFrame();
-                        if (!_lastFrame.ptr)
-                            break;
-
-                        printf("frame %lld\n", _lastFrame.index);
-
-                        averr = swr_convert(_swr.get(), &data, numNeeded, (const uint8_t**)_lastFrame.ptr->data, _lastFrame.ptr->nb_samples);
-                        if (averr < 0)
-                            break;
-                    }
-
-                    if (averr > 0)
-                    {
-                        numBufferedSamples += averr;
-                    }
-                }
-
-                hr = _audioRenderClient->ReleaseBuffer(numBufferedSamples, 0);
-                if (FAILED(hr))
-                {
-                    printf("error ReleaseBuffer!");
-                    break;
-                }
-            }
-        }
-    }
-#endif
-    return FpErrorOK;
+    MMDeviceDesc deviceDesc = {};
+    GetDeviceDesc(audioDevice, deviceDesc);
+    printf("%s <%s> chanels=%d, samples=%d, format=%s.\n", 
+        deviceDesc.friendlyName.c_str(), deviceDesc.devid.c_str(),
+        _format.chanels, _format.sampleRate, av_get_sample_fmt_name(_format.sampleFormat));
+    return FpStateOK;
 }
 
-FpError DSoundAudioPlayerFP::WaitForStop()
-{
-    _thPlay.join();
-    return FpErrorNotNow;
-}
-
-void DSoundAudioPlayerFP::playThread()
+void MMAudioPlayerFP::playThread()
 {
     thread_set_name(0, "playThread");
 
-    if (!_decoder || !_audioRenderClient)
+    if (!_decoder)
+        return;
+
+    _state = initialDevice();
+    if (_state < 0)
+        return;
+
+    _state = _decoder->WaitForFrames(std::numeric_limits<uint32_t>::max());
+    if (_state < 0)
         return;
 
     DWORD taskIndex = 0;
@@ -348,12 +291,19 @@ void DSoundAudioPlayerFP::playThread()
     uint32_t bytesPerSample = av_get_bytes_per_sample(_format.sampleFormat) * _format.chanels;
 
     FpAudioBuffer buffer;
-    uint32_t numBuffersPlayed = 0;
     while(_state >= 0)
     {
         uint32_t numSamplesTotal = _numBufferedSamples / _numBufferedSamplesCount;
         uint8_t * mmBuffer = nullptr;
         hr = _audioRenderClient->GetBuffer(numSamplesTotal, &mmBuffer);
+        if(hr == AUDCLNT_E_DEVICE_INVALIDATED)
+        {
+            buffer = {};
+            resetDevice();
+            printf("new device ...\n");
+            continue;
+        }
+
         if (!mmBuffer)
             continue;
 
@@ -361,28 +311,48 @@ void DSoundAudioPlayerFP::playThread()
         while(numSamplesRenderd < numSamplesTotal && _state >= 0)
         {
             uint32_t numSamplesNeeded = numSamplesTotal - numSamplesRenderd;
-            uint32_t numSamplesHave = buffer.numSamples - numBuffersPlayed;
+            uint32_t numSamplesHave = buffer.numSamples - buffer.numSamplesRead;
             if(numSamplesHave == 0)
             {
-                numBuffersPlayed = 0;
-                buffer = _decoder->NextBuffer();
-                if(buffer.numSamples == 0)
+                buffer = {};
+                _state = _decoder->PeekBuffer(buffer);
+                //FpState state = _decoder->NextBuffer(buffer, std::numeric_limits<uint32_t>::max());
+                if (_state == FpStatePending || buffer.numSamples == 0)
                 {
-                    _state = FpErrorPending;
+                    _state = FpStatePending;
+                    static int pending = 0;
+                    printf("stream is pending <%d>...\n", pending++);
                     break;
                 }
+
+                if(_state < 0)
+                    break;
                 numSamplesHave = buffer.numSamples;
             }
             uint32_t numSamples = numSamplesHave < numSamplesNeeded ? numSamplesHave : numSamplesNeeded;
             if(numSamples > 0)
             {
-                memcpy(mmBuffer + (numSamplesRenderd * bytesPerSample), buffer.data.get() + (numBuffersPlayed * bytesPerSample), numSamples * bytesPerSample);
+                memcpy(mmBuffer + (numSamplesRenderd * bytesPerSample), buffer.data.get() + (buffer.numSamplesRead * bytesPerSample), numSamples * bytesPerSample);
                 numSamplesRenderd += numSamples;
-                numBuffersPlayed += numSamples;
+                buffer.numSamplesRead += numSamples;
             }
         }
 
+        if(numSamplesRenderd < numSamplesTotal)
+        {
+            uint32_t numSamples = numSamplesTotal - numSamplesRenderd;
+            memset(mmBuffer + (numSamplesRenderd * bytesPerSample), 0, numSamples * bytesPerSample);
+            numSamplesRenderd += numSamples;
+        }
         hr = _audioRenderClient->ReleaseBuffer(numSamplesRenderd, 0);
+        if(hr == AUDCLNT_E_DEVICE_INVALIDATED)
+        {
+            buffer = {};
+            resetDevice();
+            printf("new device ...\n");
+            continue;
+        }
+
         if(FAILED(hr))
         {
             printf("error ReleaseBuffer!");
@@ -393,9 +363,16 @@ void DSoundAudioPlayerFP::playThread()
         while (_state >= 0)
         {
             hr = _audioClient->GetCurrentPadding(&numSamplesPadding);
+            if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
+            {
+                buffer = {};
+                resetDevice();
+                break;
+            }
+
             if (FAILED(hr))
             {
-                _state = FpErrorGeneric;
+                _state = FpStateGeneric;
                 break;
             }
 
@@ -405,5 +382,4 @@ void DSoundAudioPlayerFP::playThread()
             Sleep(((numSamplesPadding - numSamplesTotal) * 1000) / _format.sampleRate);
         }
     }
-
 }
