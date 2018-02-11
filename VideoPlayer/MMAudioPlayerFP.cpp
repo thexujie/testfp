@@ -25,11 +25,6 @@ MMAudioPlayerFP::MMAudioPlayerFP(std::shared_ptr<IAudioDecoderFP> decoder)
 
 MMAudioPlayerFP::~MMAudioPlayerFP()
 {
-    if(_audioEvent)
-    {
-        CloseHandle(reinterpret_cast<HANDLE>(_audioEvent));
-        _audioEvent = 0;
-    }
 }
 
 std::vector<MMDeviceDesc> MMAudioPlayerFP::GetDeviceDescs()
@@ -146,7 +141,8 @@ FpState MMAudioPlayerFP::resetDevice()
     _state = initialDevice();
     if (_state < 0)
         return _state;
-    return _decoder->WaitForFrames(std::numeric_limits<uint32_t>::max());
+    return FpStateOK;
+    //return _decoder->WaitForFrames(std::numeric_limits<uint32_t>::max());
 }
 
 FpState MMAudioPlayerFP::initialDevice()
@@ -181,7 +177,7 @@ FpState MMAudioPlayerFP::initialDevice()
     if (FAILED(hr) || durationMin <= 0)
         return FpStateGeneric;
 
-    uint32_t audioClientFlags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+    uint32_t audioClientFlags = /*AUDCLNT_STREAMFLAGS_EVENTCALLBACK*/0;
     hr = audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, audioClientFlags, durationMin, 0, waveformat.get(), NULL);
     if (FAILED(hr))
         return FpStateGeneric;
@@ -191,37 +187,14 @@ FpState MMAudioPlayerFP::initialDevice()
     if (FAILED(hr) || numBufferedSamples <= 0)
         return FpStateGeneric;
 
-    HANDLE audioEvent = NULL;
-    if (audioClientFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK)
-    {
-        audioEvent = CreateEventExW(NULL, NULL, 0, EVENT_MODIFY_STATE | SYNCHRONIZE);
-        //HANDLE audioEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
-        if (!audioEvent)
-            return FpStateGeneric;
-        hr = audioClient->SetEventHandle(audioEvent);
-        if (FAILED(hr))
-        {
-            CloseHandle(audioEvent);
-            return FpStateGeneric;
-        }
-    }
-
     com_ptr<struct IAudioRenderClient> audioRenderClient;
     hr = audioClient->GetService(__uuidof(IAudioRenderClient), reinterpret_cast<void**>(&audioRenderClient));
     if (FAILED(hr) || !audioRenderClient)
-    {
-        if (audioEvent)
-            CloseHandle(audioEvent);
         return FpStateGeneric;
-    }
 
     hr = audioClient->Start();
     if (FAILED(hr))
-    {
-        if (audioEvent)
-            CloseHandle(audioEvent);
         return FpStateGeneric;
-    }
 
     AVSampleFormat sampleFormat = AV_SAMPLE_FMT_NONE;
     if ((waveformat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) && (waveformat->wBitsPerSample == 32))
@@ -243,11 +216,9 @@ FpState MMAudioPlayerFP::initialDevice()
     }
 
     _numBufferedSamples = numBufferedSamples;
-    double bufferDuration = (double)_numBufferedSamples / waveformat->nSamplesPerSec;
     _audioDevice = audioDevice;
     _audioClient = audioClient;
     _audioRenderClient = audioRenderClient;
-    _audioEvent = (intmax_t)audioEvent;
 
     _format.chanels = waveformat->nChannels;
     _format.sampleRate = waveformat->nSamplesPerSec;
@@ -285,22 +256,19 @@ void MMAudioPlayerFP::playThread()
     HANDLE hTask = AvSetMmThreadCharacteristics(TEXT("Pro Audio"), &taskIndex);
     //::SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
-    int averr = 0;
     HRESULT hr = S_OK;
-    HANDLE audioEvent = (HANDLE)_audioEvent;
     uint32_t bytesPerSample = av_get_bytes_per_sample(_format.sampleFormat) * _format.chanels;
 
     FpAudioBuffer buffer;
     while(_state >= 0)
     {
-        uint32_t numSamplesTotal = _numBufferedSamples / _numBufferedSamplesCount;
+        uint32_t numSamplesTotal = _numBufferedSamples / 2;
         uint8_t * mmBuffer = nullptr;
         hr = _audioRenderClient->GetBuffer(numSamplesTotal, &mmBuffer);
         if(hr == AUDCLNT_E_DEVICE_INVALIDATED)
         {
             buffer = {};
             resetDevice();
-            printf("new device ...\n");
             continue;
         }
 
@@ -320,8 +288,7 @@ void MMAudioPlayerFP::playThread()
                 if (_state == FpStatePending || buffer.numSamples == 0)
                 {
                     _state = FpStatePending;
-                    static int pending = 0;
-                    printf("stream is pending <%d>...\n", pending++);
+                    printf("stream is pending <%d>...\n", _pendingCountTotal++);
                     break;
                 }
 
@@ -349,7 +316,6 @@ void MMAudioPlayerFP::playThread()
         {
             buffer = {};
             resetDevice();
-            printf("new device ...\n");
             continue;
         }
 

@@ -58,31 +58,31 @@ struct FpAudioFormat
 };
 
 class IAudioDecoderFP;
-class IAudioPacketStreamFP;
+class IAudioPacketReaderFP;
 
-class IFFmpegDemuxer
+//class IFFmpegDemuxer
+//{
+//public:
+//    virtual ~IFFmpegDemuxer() = default;
+//    virtual FpState LoadFromFile(const u8string & filePath) = 0;
+//    virtual std::shared_ptr<IAudioPacketReaderFP> GetAudioStream(int32_t streamId) = 0;
+//
+//    virtual std::map<int32_t, AVMediaType> GetStreamTypes() const = 0;
+//    virtual FpAudioFormat GetAudioFormat(int32_t streamId) const = 0;
+//    virtual FpState State(int32_t streamId) const = 0;
+//
+//    virtual FpState Ready(int64_t timeoutMS) = 0;
+//    // FpStateOK FpStatePending
+//    virtual FpState PeekPacket(int32_t streamId, FpPacket & packet) = 0;
+//    // FpStateOK FpStateEOF FpStateTimeOut
+//    virtual FpState NextPacket(int32_t streamId, FpPacket & packet, int64_t timeoutMS) = 0;
+//};
+
+
+class IAudioPacketReaderFP
 {
 public:
-    virtual ~IFFmpegDemuxer() = default;
-    virtual FpState LoadFromFile(const u8string & filePath) = 0;
-    virtual std::shared_ptr<IAudioPacketStreamFP> GetAudioStream(int32_t streamId) = 0;
-
-    virtual std::map<int32_t, AVMediaType> GetStreamTypes() const = 0;
-    virtual FpAudioFormat GetAudioFormat(int32_t streamId) const = 0;
-    virtual FpState State(int32_t streamId) const = 0;
-
-    virtual FpState Ready(int64_t timeoutMS) = 0;
-    // FpStateOK FpStatePending
-    virtual FpState PeekPacket(int32_t streamId, FpPacket & packet) = 0;
-    // FpStateOK FpStateEOF FpStateTimeOut
-    virtual FpState NextPacket(int32_t streamId, FpPacket & packet, int64_t timeoutMS) = 0;
-};
-
-
-class IAudioPacketStreamFP
-{
-public:
-    virtual ~IAudioPacketStreamFP() = default;
+    virtual ~IAudioPacketReaderFP() = default;
     virtual FpAudioFormat GetAudioFormat() const = 0;
     virtual FpState State() const = 0;
 
@@ -93,11 +93,26 @@ public:
     virtual FpState NextPacket(FpPacket & packet, int64_t timeoutMS) = 0;
 };
 
-class IAudioDecoderFP
+class IAudioBufferReaderFP
+{
+public:
+    virtual ~IAudioBufferReaderFP() = default;
+
+    virtual FpState SetOutputFormat(FpAudioFormat format) = 0;
+
+    virtual FpState Ready(int64_t timeoutMS) = 0;
+    virtual FpState WaitForFrames(int64_t timeoutMS) = 0;
+    // FpStateOK FpStatePending
+    virtual FpState PeekBuffer(FpAudioBuffer & buffer) = 0;
+    // FpStateOK FpStateEOF FpStateTimeOut
+    virtual FpState NextBuffer(FpAudioBuffer & buffer, int64_t timeoutMS) = 0;
+};
+
+class IAudioDecoderFP : public IAudioBufferReaderFP
 {
 public:
     virtual ~IAudioDecoderFP() = default;
-    virtual std::shared_ptr<IAudioPacketStreamFP> Stream() const = 0;
+    virtual std::shared_ptr<IAudioPacketReaderFP> Stream() const = 0;
     virtual FpState SetOutputFormat(FpAudioFormat format) = 0;
 
     virtual FpState Ready(int64_t timeoutMS) = 0;

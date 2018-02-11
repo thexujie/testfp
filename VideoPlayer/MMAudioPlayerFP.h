@@ -32,13 +32,13 @@ private:
     com_ptr<struct IAudioClient> _audioClient;
     com_ptr<struct IAudioRenderClient> _audioRenderClient;
 
-    intmax_t _audioEvent = 0;
     uint32_t _numBufferedSamples = 0;
-    uint32_t _numBufferedSamplesCount = 2;
     std::vector<uint8_t> _audioBuffers;
     FpAudioFormat _format;
 
     std::atomic<FpState> _state = FpStateOK;
 
     std::shared_ptr<SwrContext> _swr;
+
+    int64_t _pendingCountTotal = 0;
 };

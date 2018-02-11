@@ -8,14 +8,14 @@ using MpVector = std::vector<_Ty>;
 template<typename _Ty, size_t  _Size>
 using MpArray = std::array<_Ty, _Size>;
 
-class MediaDemuxerFP : public IFFmpegDemuxer, public std::enable_shared_from_this<IFFmpegDemuxer>
+class FFmpegDemuxerFP : public std::enable_shared_from_this<FFmpegDemuxerFP>
 {
 public:
-    MediaDemuxerFP();
-    ~MediaDemuxerFP();
+    FFmpegDemuxerFP();
+    ~FFmpegDemuxerFP();
 
     FpState LoadFromFile(const u8string & filePath);
-    std::shared_ptr<IAudioPacketStreamFP> GetAudioStream(int32_t streamId);
+    std::shared_ptr<IAudioPacketReaderFP> GetAudioStream(int32_t streamId);
 
     FpState State(int32_t streamId) const;
     std::map<int32_t, AVMediaType> GetStreamTypes() const;
@@ -35,7 +35,7 @@ private:
         int64_t streamIndex = 0;
         int64_t index = 0;
         std::atomic<FpState> state = FpStateOK;
-        std::shared_ptr<IAudioPacketStreamFP> stream;
+        std::shared_ptr<IAudioPacketReaderFP> stream;
     };
 
     std::shared_ptr<AVFormatContext> _avformatContext;
@@ -52,11 +52,11 @@ private:
     int32_t _asyncTimeOutTime = 5000;
 };
 
-class AudioPacketStreamFP : public IAudioPacketStreamFP
+class AudioPacketReaderFP : public IAudioPacketReaderFP
 {
 public:
-    AudioPacketStreamFP(std::shared_ptr<IFFmpegDemuxer> demuxer, int32_t streamIndex);
-    ~AudioPacketStreamFP();
+    AudioPacketReaderFP(std::shared_ptr<FFmpegDemuxerFP> demuxer, int32_t streamIndex);
+    ~AudioPacketReaderFP();
 
     FpAudioFormat GetAudioFormat() const;
     FpState State() const;
@@ -69,17 +69,17 @@ public:
 
 private:
 
-    std::weak_ptr<IFFmpegDemuxer>  _demuxer;
+    std::weak_ptr<FFmpegDemuxerFP>  _demuxer;
     int32_t _streamIndex = -1;
 };
 
 class AudioDecoderFP : public IAudioDecoderFP
 {
 public:
-    AudioDecoderFP(std::shared_ptr<IAudioPacketStreamFP> stream);
+    AudioDecoderFP(std::shared_ptr<IAudioPacketReaderFP> reader);
     ~AudioDecoderFP();
 
-    std::shared_ptr<IAudioPacketStreamFP> Stream() const;
+    std::shared_ptr<IAudioPacketReaderFP> Stream() const;
     FpAudioFormat GetOutputFormat() const;
     FpState SetOutputFormat(FpAudioFormat format);
 
@@ -94,7 +94,7 @@ private:
     void decoderThread();
 
 private:
-    std::shared_ptr<IAudioPacketStreamFP> _stream;
+    std::shared_ptr<IAudioPacketReaderFP> _reader;
 
     FpAudioFormat _inputFormat;
     FpAudioFormat _outputFormat;

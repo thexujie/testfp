@@ -29,17 +29,17 @@ void swr_free_wrap(SwrContext * ptr)
     swr_free(&ptr);
 }
 
-MediaDemuxerFP::MediaDemuxerFP()
+FFmpegDemuxerFP::FFmpegDemuxerFP()
 {
 
 }
 
-MediaDemuxerFP::~MediaDemuxerFP()
+FFmpegDemuxerFP::~FFmpegDemuxerFP()
 {
     _thRead.join();
 }
 
-FpState MediaDemuxerFP::LoadFromFile(const u8string & filePath)
+FpState FFmpegDemuxerFP::LoadFromFile(const u8string & filePath)
 {
     int32_t averr = 0;
 
@@ -61,7 +61,7 @@ FpState MediaDemuxerFP::LoadFromFile(const u8string & filePath)
     return FpStateOK;
 }
 
-std::shared_ptr<IAudioPacketStreamFP> MediaDemuxerFP::GetAudioStream(int32_t streamId)
+std::shared_ptr<IAudioPacketReaderFP> FFmpegDemuxerFP::GetAudioStream(int32_t streamId)
 {
     auto iter = _packets.find(streamId);
     if (iter == _packets.end())
@@ -70,11 +70,11 @@ std::shared_ptr<IAudioPacketStreamFP> MediaDemuxerFP::GetAudioStream(int32_t str
     if (iter->second.stream)
         return iter->second.stream;
 
-    iter->second.stream = std::make_shared<AudioPacketStreamFP>(shared_from_this(), streamId);
+    iter->second.stream = std::make_shared<AudioPacketReaderFP>(shared_from_this(), streamId);
     return iter->second.stream;
 }
 
-FpState MediaDemuxerFP::State(int32_t streamId) const
+FpState FFmpegDemuxerFP::State(int32_t streamId) const
 {
     auto iter = _packets.find(streamId);
     if (iter == _packets.end())
@@ -83,7 +83,7 @@ FpState MediaDemuxerFP::State(int32_t streamId) const
     return iter->second.state;
 }
 
-std::map<int32_t, AVMediaType> MediaDemuxerFP::GetStreamTypes() const
+std::map<int32_t, AVMediaType> FFmpegDemuxerFP::GetStreamTypes() const
 {
     std::map<int32_t, AVMediaType> types;
     if (_avformatContext)
@@ -96,7 +96,7 @@ std::map<int32_t, AVMediaType> MediaDemuxerFP::GetStreamTypes() const
     return types;
 }
 
-FpAudioFormat MediaDemuxerFP::GetAudioFormat(int32_t streamId) const
+FpAudioFormat FFmpegDemuxerFP::GetAudioFormat(int32_t streamId) const
 {
     FpAudioFormat format = {};
     if (!_avformatContext || streamId < 0 || streamId >= _avformatContext->nb_streams)
@@ -114,7 +114,7 @@ FpAudioFormat MediaDemuxerFP::GetAudioFormat(int32_t streamId) const
     return format;
 }
 
-FpState MediaDemuxerFP::Ready(int64_t timeoutMS)
+FpState FFmpegDemuxerFP::Ready(int64_t timeoutMS)
 {
     if (!timeoutMS)
         timeoutMS = _asyncTimeOutTime;
@@ -123,17 +123,17 @@ FpState MediaDemuxerFP::Ready(int64_t timeoutMS)
         return FpStateAlready;
 
     std::unique_lock<std::mutex> lock(_mtxRead);
-    _thRead = std::thread(std::bind(&MediaDemuxerFP::demuxerThread, this));
+    _thRead = std::thread(std::bind(&FFmpegDemuxerFP::demuxerThread, this));
     if (_condRead.wait_for(lock, std::chrono::milliseconds(_asyncTimeOutTime)) == std::cv_status::timeout)
         return FpStateTimeOut;
     return FpStateOK;
 }
 
-FpState MediaDemuxerFP::PeekPacket(int32_t streamId, FpPacket & packet)
+FpState FFmpegDemuxerFP::PeekPacket(int32_t streamId, FpPacket & packet)
 {
     if (_thRead.get_id() == std::thread::id())
     {
-        _thRead = std::thread(std::bind(&MediaDemuxerFP::demuxerThread, this));
+        _thRead = std::thread(std::bind(&FFmpegDemuxerFP::demuxerThread, this));
         return FpStatePending;
     }
 
@@ -155,7 +155,7 @@ FpState MediaDemuxerFP::PeekPacket(int32_t streamId, FpPacket & packet)
     return FpStateOK;
 }
 
-FpState MediaDemuxerFP::NextPacket(int32_t streamId, FpPacket & packet, int64_t timeoutMS)
+FpState FFmpegDemuxerFP::NextPacket(int32_t streamId, FpPacket & packet, int64_t timeoutMS)
 {
     if (!timeoutMS)
         timeoutMS = _asyncTimeOutTime;
@@ -166,7 +166,7 @@ FpState MediaDemuxerFP::NextPacket(int32_t streamId, FpPacket & packet, int64_t 
 
     if (_thRead.get_id() == std::thread::id())
     {
-        _thRead = std::thread(std::bind(&MediaDemuxerFP::demuxerThread, this));
+        _thRead = std::thread(std::bind(&FFmpegDemuxerFP::demuxerThread, this));
         auto wait = _condRead.wait_for(lock, std::chrono::milliseconds(timeoutMS));
         if (wait == std::cv_status::timeout)
             return FpStateTimeOut;
@@ -202,7 +202,7 @@ FpState MediaDemuxerFP::NextPacket(int32_t streamId, FpPacket & packet, int64_t 
     return FpStateOK;
 }
 
-void MediaDemuxerFP::demuxerThread()
+void FFmpegDemuxerFP::demuxerThread()
 {
     thread_set_name(0, "demuxerThread");
 
@@ -266,18 +266,18 @@ void MediaDemuxerFP::demuxerThread()
 }
 
 
-AudioPacketStreamFP::AudioPacketStreamFP(std::shared_ptr<IFFmpegDemuxer> demuxer, int32_t streamIndex)
+AudioPacketReaderFP::AudioPacketReaderFP(std::shared_ptr<FFmpegDemuxerFP> demuxer, int32_t streamIndex)
     :_demuxer(demuxer), _streamIndex(streamIndex)
 {
     
 }
 
-AudioPacketStreamFP::~AudioPacketStreamFP()
+AudioPacketReaderFP::~AudioPacketReaderFP()
 {
     
 }
 
-FpAudioFormat AudioPacketStreamFP::GetAudioFormat() const
+FpAudioFormat AudioPacketReaderFP::GetAudioFormat() const
 {
     if (_demuxer.expired() || _streamIndex < 0)
         throw std::exception();
@@ -285,7 +285,7 @@ FpAudioFormat AudioPacketStreamFP::GetAudioFormat() const
     return _demuxer.lock()->GetAudioFormat(_streamIndex);
 }
 
-FpState AudioPacketStreamFP::State() const
+FpState AudioPacketReaderFP::State() const
 {
     if (_demuxer.expired() || _streamIndex < 0)
         throw std::exception();
@@ -293,7 +293,7 @@ FpState AudioPacketStreamFP::State() const
     return _demuxer.lock()->State(_streamIndex);
 }
 
-FpState AudioPacketStreamFP::Ready(int64_t timeoutMS)
+FpState AudioPacketReaderFP::Ready(int64_t timeoutMS)
 {
     if (_demuxer.expired() || _streamIndex < 0)
         throw std::exception();
@@ -302,7 +302,7 @@ FpState AudioPacketStreamFP::Ready(int64_t timeoutMS)
 }
 
 // FpStateOK FpStatePending
-FpState AudioPacketStreamFP::PeekPacket(FpPacket & packet)
+FpState AudioPacketReaderFP::PeekPacket(FpPacket & packet)
 {
     if (_demuxer.expired() || _streamIndex < 0)
         throw std::exception();
@@ -311,7 +311,7 @@ FpState AudioPacketStreamFP::PeekPacket(FpPacket & packet)
 }
 
 // FpStateOK FpStateEOF FpStateTimeOut
-FpState AudioPacketStreamFP::NextPacket(FpPacket & packet, int64_t timeoutMS)
+FpState AudioPacketReaderFP::NextPacket(FpPacket & packet, int64_t timeoutMS)
 {
     if (_demuxer.expired() || _streamIndex < 0)
         throw std::exception();
@@ -319,10 +319,10 @@ FpState AudioPacketStreamFP::NextPacket(FpPacket & packet, int64_t timeoutMS)
     return _demuxer.lock()->NextPacket(_streamIndex, packet, timeoutMS);
 }
 
-AudioDecoderFP::AudioDecoderFP(std::shared_ptr<IAudioPacketStreamFP> stream)
-    : _stream(stream)
+AudioDecoderFP::AudioDecoderFP(std::shared_ptr<IAudioPacketReaderFP> reader)
+    : _reader(reader)
 {
-    _inputFormat = _stream->GetAudioFormat();
+    _inputFormat = _reader->GetAudioFormat();
 }
 
 AudioDecoderFP::~AudioDecoderFP()
@@ -330,17 +330,17 @@ AudioDecoderFP::~AudioDecoderFP()
     
 }
 
-std::shared_ptr<IAudioPacketStreamFP> AudioDecoderFP::Stream() const
+std::shared_ptr<IAudioPacketReaderFP> AudioDecoderFP::Stream() const
 {
-    return _stream;
+    return _reader;
 }
 
 FpAudioFormat AudioDecoderFP::GetOutputFormat() const
 {
-    if (!_stream)
+    if (!_reader)
         return {};
 
-    return _stream->GetAudioFormat();
+    return _reader->GetAudioFormat();
 }
 
 FpState AudioDecoderFP::SetOutputFormat(FpAudioFormat format)
@@ -510,7 +510,7 @@ FpState AudioDecoderFP::readFrame(std::shared_ptr<AVFrame> & frame)
         if (averr == AVERROR(EAGAIN))
         {
             FpPacket packet{};
-            state = _stream->NextPacket(packet, std::numeric_limits<uint32_t>::max());
+            state = _reader->NextPacket(packet, std::numeric_limits<uint32_t>::max());
 
             if (state < 0)
                 break;
@@ -544,7 +544,7 @@ void AudioDecoderFP::decoderThread()
     thread_set_name(0, "decoderThread");
     //thread_prom();
 
-    if (!_stream || !_inputFormat.codecId || _outputFormat.sampleFormat == AV_SAMPLE_FMT_NONE)
+    if (!_reader || !_inputFormat.codecId || _outputFormat.sampleFormat == AV_SAMPLE_FMT_NONE)
     {
         _state = FpStateBadState;
         return;
@@ -573,44 +573,11 @@ void AudioDecoderFP::decoderThread()
     }
 
     //-------------------------------------------------------------
-    int64_t sessionIndex = -1;
+    int64_t sessionIndex = _sessionIndex - 1;
     std::list<FpAudioBuffer> buffers;
     FpState error = FpStateOK;
     while (_state >= 0 && error >= 0)
     {
-        //重建资源
-        if(sessionIndex != _sessionIndex)
-        {
-            std::unique_lock<std::mutex> lock(_mtxRead);
-            sessionIndex = _sessionIndex;
-
-            _swr.reset(swr_alloc(), swr_free_wrap);
-            int64_t in_channel_layout = av_get_default_channel_layout(_inputFormat.chanels);
-            int64_t out_channel_layout = av_get_default_channel_layout(_outputFormat.chanels);
-
-            av_opt_set_int(_swr.get(), "in_channel_layout", in_channel_layout, 0);
-            av_opt_set_int(_swr.get(), "in_sample_rate", _inputFormat.sampleRate, 0);
-            av_opt_set_sample_fmt(_swr.get(), "in_sample_fmt", _inputFormat.sampleFormat, 0);
-
-            av_opt_set_int(_swr.get(), "out_channel_layout", out_channel_layout, 0);
-            av_opt_set_int(_swr.get(), "out_sample_rate", _outputFormat.sampleRate, 0);
-            av_opt_set_sample_fmt(_swr.get(), "out_sample_fmt", _outputFormat.sampleFormat, 0);
-
-            averr = swr_init(_swr.get());
-            if (averr < 0)
-            {
-                _state = FpStateBadState;
-                return;
-            }
-
-            for (auto iter = _buffers.begin(); iter != _buffers.end(); ++iter)
-                _sessionFrames.push_front(iter->avframe);
-            for (auto iter = buffers.begin(); iter != buffers.end(); ++iter)
-                _sessionFrames.push_front(iter->avframe);
-            _buffers.clear();
-            buffers.clear();
-        }
-
         while (_state >= 0 && error >= 0 && buffers.size() < _minFrames && sessionIndex == _sessionIndex)
         {
             std::shared_ptr<AVFrame> avframe;
@@ -640,16 +607,42 @@ void AudioDecoderFP::decoderThread()
             }
         }
 
-        if(sessionIndex == _sessionIndex)
+        std::unique_lock<std::mutex> lock(_mtxRead);
+        _condDecoder.wait(lock, [this, &sessionIndex] {return _buffers.size() < _minFrames || _state < 0 || sessionIndex != _sessionIndex; });
+
+        //重建资源
+        if (sessionIndex != _sessionIndex)
         {
-            std::unique_lock<std::mutex> lock(_mtxRead);
-            _condDecoder.wait(lock, [this, &sessionIndex] {return _buffers.size() < _minFrames || _state < 0 || sessionIndex != _sessionIndex; });
-            if (sessionIndex == _sessionIndex)
+            sessionIndex = _sessionIndex;
+
+            _swr.reset(swr_alloc(), swr_free_wrap);
+            int64_t in_channel_layout = av_get_default_channel_layout(_inputFormat.chanels);
+            int64_t out_channel_layout = av_get_default_channel_layout(_outputFormat.chanels);
+
+            av_opt_set_int(_swr.get(), "in_channel_layout", in_channel_layout, 0);
+            av_opt_set_int(_swr.get(), "in_sample_rate", _inputFormat.sampleRate, 0);
+            av_opt_set_sample_fmt(_swr.get(), "in_sample_fmt", _inputFormat.sampleFormat, 0);
+
+            av_opt_set_int(_swr.get(), "out_channel_layout", out_channel_layout, 0);
+            av_opt_set_int(_swr.get(), "out_sample_rate", _outputFormat.sampleRate, 0);
+            av_opt_set_sample_fmt(_swr.get(), "out_sample_fmt", _outputFormat.sampleFormat, 0);
+
+            averr = swr_init(_swr.get());
+            if (averr < 0)
             {
-                _buffers.splice(_buffers.end(), buffers);
-                lock.unlock();
-                _condRead.notify_all();
+                _state = FpStateBadState;
+                return;
             }
+
+            for (auto iter = buffers.begin(); iter != buffers.end(); ++iter)
+                _sessionFrames.push_front(iter->avframe);
+            buffers.clear();
+        }
+        else
+        {
+            _buffers.splice(_buffers.end(), buffers);
+            lock.unlock();
+            _condRead.notify_all();
         }
     }
 }

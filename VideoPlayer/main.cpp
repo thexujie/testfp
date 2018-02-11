@@ -30,7 +30,7 @@ int _tmain2(int argc, char* argv[])
     av_register_all();
     //av_log_set_level(AV_LOG_TRACE);
 
-    std::shared_ptr<IFFmpegDemuxer> demuxer = std::make_shared<MediaDemuxerFP>();
+    std::shared_ptr<FFmpegDemuxerFP> demuxer = std::make_shared<FFmpegDemuxerFP>();
     //demuxer->LoadFromFile("F:\\files\\videos\\lig.mp4");
     //demuxer->LoadFromFile("F:\\files\\videos\\绑架者.mkv");
     demuxer->LoadFromFile("F:\\files\\videos\\ww.mkv");
@@ -57,11 +57,11 @@ int _tmain2(int argc, char* argv[])
     //}
     //Sleep(9999999);
 
-    std::shared_ptr<IAudioPacketStreamFP> audioStream = demuxer->GetAudioStream(audioIndex);
-    if (!audioStream)
+    std::shared_ptr<IAudioPacketReaderFP> audioPacketReader = demuxer->GetAudioStream(audioIndex);
+    if (!audioPacketReader)
         return 0;
 
-    std::shared_ptr<IAudioDecoderFP> audioDecoder = std::make_shared<AudioDecoderFP>(audioStream);
+    std::shared_ptr<IAudioDecoderFP> audioDecoder = std::make_shared<AudioDecoderFP>(audioPacketReader);
 
     //int frameIndex = 0;
     //while (frameIndex >= 0)

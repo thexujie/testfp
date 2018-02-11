@@ -167,17 +167,16 @@ int AudioPlayer::generate(std::string filename, audio_context & context)
         return APErrorNoDecoder;
 
     avobject3<AVCodecContext, avcodec_free_context> avcodecContext(avcodec_alloc_context3(avcodec));
-    avcodecContext->sample_fmt = (AVSampleFormat)avcodecParameters->format;
-    avcodecContext->channels = avcodecParameters->channels;
-    //avcodecContext->channel_layout = av_get_default_channel_layout(_inputFormat.chanels);;
+    avcodec_parameters_to_context(avcodecContext, avcodecParameters);
+    avcodecContext->codec_type = avcodecParameters->codec_type;
+    avcodecContext->codec_id = avcodecParameters->codec_id;
+    avcodecContext->bit_rate = avcodecParameters->bit_rate;
     avcodecContext->sample_rate = avcodecParameters->sample_rate;
-    //avcodec_parameters_to_context(avcodecContext, avcodecParameters);
-    //avcodecContext->codec_type = avcodecParameters->codec_type;
-    //avcodecContext->codec_id = avcodecParameters->codec_id;
-    //avcodecContext->bit_rate = avcodecParameters->bit_rate;
-    //avcodecContext->sample_rate = avcodecParameters->sample_rate;
-    //avcodecContext->channels = avcodecParameters->channels;
+    avcodecContext->channels = avcodecParameters->channels;
+    avcodecContext->sample_fmt = (AVSampleFormat)avcodecParameters->format;
     //avcodecContext->sample_fmt = (AVSampleFormat)avcodecParameters->format;
+    //avcodecContext->channels = avcodecParameters->channels;
+    //avcodecContext->sample_rate = avcodecParameters->sample_rate;
 
     if(avcodec_open2(avcodecContext, avcodec, NULL) < 0)
         return APErrorInternal;
@@ -352,7 +351,7 @@ int AudioPlayer::doPlay()
                         //printf("index:%5d\t pts:%lld\t packet size:%d ptsOffset:%lld\n", udata.packetIndex, udata.avpacket->pts, udata.avpacket->size, udata.ptsOffset);
                         ++udata.packetIndex;
 
-                        printf("packet [%lld] pos=%lld, pts=%lld, dur=%lld, size=%d.\n", 0i64, udata.avpacket->pos, udata.avpacket->pts, udata.avpacket->duration, udata.avpacket->size);
+                        //printf("packet [%lld] pos=%lld, pts=%lld, dur=%lld, size=%d.\n", 0i64, udata.avpacket->pos, udata.avpacket->pts, udata.avpacket->duration, udata.avpacket->size);
                         averr = avcodec_send_packet(udata.context.avcodecContext, udata.avpacket);
                         if(averr)
                         {
@@ -485,7 +484,11 @@ int AudioPlayer::doPlay()
                             //!!! SwrContext 中如果有缓存没有读取完，会导致严重的内存泄漏。
                             averr = swr_convert(udata.context.swr, &dst, nb_samples, 0, 0);
                             if(averr == 0)
+                            {
+                                udata.context.sampleIndex = -1;
+                                av_frame_unref(udata.avframe);
                                 break;
+                            }
 
                             if(averr < 0)
                             {
@@ -500,11 +503,11 @@ int AudioPlayer::doPlay()
                     }
 
                     //读取下一帧
-                    if((udata.sampleIndex - udata.context.sampleIndex) >= udata.avframe->nb_samples)
+         /*           if((udata.sampleIndex - udata.context.sampleIndex) >= udata.avframe->nb_samples)
                     {
                         udata.context.sampleIndex = -1;
                         av_frame_unref(udata.avframe);
-                    }
+                    }*/
 
                     if(buffer.sampleIndex >= buffer.sampleSize)
                     {
