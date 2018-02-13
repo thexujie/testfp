@@ -54,7 +54,7 @@ const int MAX_BUFFER = 200;
 struct audio_buffer
 {
     long long index;
-    byte * data;
+    uint8_t * data;
     long long sampleIndex;
     long long sampleSize;
 

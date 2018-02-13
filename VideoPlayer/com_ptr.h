@@ -35,6 +35,12 @@ public:
 
     com_ptr<UT> & operator=(com_ptr<UT> & another)
     {
+        if (_ptr)
+        {
+            _ptr->Release();
+            _ptr = nullptr;
+        }
+
         if (another._ptr)
         {
             another._ptr->AddRef();
@@ -51,6 +57,9 @@ public:
             _ptr = nullptr;
         }
     }
+
+    UT * get() { return _ptr; }
+    const UT * get() const { return _ptr; }
 
 private:
     UT * _ptr = nullptr;

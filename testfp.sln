@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.27130.2027
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "TestSdl", "TestSdl\TestSdl.vcxproj", "{FC54FAC1-6441-48FC-9322-998A94FD6381}"
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "AudioPlayer", "AudioPlayer\AudioPlayer.vcxproj", "{9FD34355-B09E-4A18-BBAC-BCA039BD406D}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FFmpegSamples", "FFmpegSamples\FFmpegSamples.vcxproj", "{CC8ADC81-338B-4BBC-AD6D-022CED20FF5C}"
@@ -26,14 +24,6 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{FC54FAC1-6441-48FC-9322-998A94FD6381}.Debug|x64.ActiveCfg = Debug|x64
-		{FC54FAC1-6441-48FC-9322-998A94FD6381}.Debug|x64.Build.0 = Debug|x64
-		{FC54FAC1-6441-48FC-9322-998A94FD6381}.Debug|x86.ActiveCfg = Debug|Win32
-		{FC54FAC1-6441-48FC-9322-998A94FD6381}.Debug|x86.Build.0 = Debug|Win32
-		{FC54FAC1-6441-48FC-9322-998A94FD6381}.Release|x64.ActiveCfg = Release|x64
-		{FC54FAC1-6441-48FC-9322-998A94FD6381}.Release|x64.Build.0 = Release|x64
-		{FC54FAC1-6441-48FC-9322-998A94FD6381}.Release|x86.ActiveCfg = Release|Win32
-		{FC54FAC1-6441-48FC-9322-998A94FD6381}.Release|x86.Build.0 = Release|Win32
 		{9FD34355-B09E-4A18-BBAC-BCA039BD406D}.Debug|x64.ActiveCfg = Debug|x64
 		{9FD34355-B09E-4A18-BBAC-BCA039BD406D}.Debug|x64.Build.0 = Debug|x64
 		{9FD34355-B09E-4A18-BBAC-BCA039BD406D}.Debug|x86.ActiveCfg = Debug|Win32

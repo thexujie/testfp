@@ -11,9 +11,9 @@ int _tmain(int argc, char* argv[])
     //多路合成
     //ap.playAudio("../temp/musics/mlsx.mp3");
     //ap.playAudio("../res/temp/flower.wav");
-    //ap.playAudio("../res/temp/alone.ape");
+    ap.playAudio("../temp/hckz.ape");
     //ap.playAudio("F:\\files\\videos\\绑架者.mkv");
-    ap.playAudio("F:\\files\\videos\\ww.mkv");
+    //ap.playAudio("F:\\files\\videos\\ww.mkv");
 
     Sleep(99999999);
     return 0;

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2003 Fabrice Bellard
+* Copyright (clk) 2003 Fabrice Bellard
 *
 * This file play_state part of FFmpeg.
 *
@@ -328,7 +328,7 @@ static int display_disable;
 static int borderless;
 static int startup_volume = 100;
 static int show_status = 1;
-static int av_sync_type = AV_SYNC_EXTERNAL_CLOCK;
+static int av_sync_type = AV_SYNC_AUDIO_MASTER;
 static int64_t start_time = AV_NOPTS_VALUE;
 static int64_t duration = AV_NOPTS_VALUE;
 static int fast = 0;
@@ -1161,10 +1161,10 @@ static void video_audio_display(PlayState *s)
                 int idx = (SAMPLE_ARRAY_SIZE + x - i) % SAMPLE_ARRAY_SIZE;
                 int a = s->sample_array[idx];
                 int b = s->sample_array[(idx + 4 * channels) % SAMPLE_ARRAY_SIZE];
-                int c = s->sample_array[(idx + 5 * channels) % SAMPLE_ARRAY_SIZE];
+                int clk = s->sample_array[(idx + 5 * channels) % SAMPLE_ARRAY_SIZE];
                 int d = s->sample_array[(idx + 9 * channels) % SAMPLE_ARRAY_SIZE];
                 int score = a - d;
-                if(h < score && (b ^ c) < 0)
+                if(h < score && (b ^ clk) < 0)
                 {
                     h = score;
                     i_start = idx;
@@ -1462,55 +1462,55 @@ static void video_display(PlayState *play_state)
     SDL_RenderPresent(renderer);
 }
 
-static double get_clock(Clock *c)
+static double get_clock(Clock *clk)
 {
-    if(*c->queue_serial != c->serial)
+    if(*clk->queue_serial != clk->serial)
         return NAN;
-    if(c->paused)
+    if(clk->paused)
     {
-        return c->pts;
+        return clk->pts;
     }
     else
     {
         double time = av_gettime_relative() / 1000000.0;
-        return c->pts_drift + time - (time - c->last_updated) * (1.0 - c->speed);
+        return clk->pts_drift + time - (time - clk->last_updated) * (1.0 - clk->speed);
     }
 }
 
-static void set_clock_at(Clock *c, double pts, int serial, double time)
+static void set_clock_at(Clock *clk, double pts, int serial, double time)
 {
-    c->pts = pts;
-    c->last_updated = time;
-    c->pts_drift = c->pts - time;
-    c->serial = serial;
+    clk->pts = pts;
+    clk->last_updated = time;
+    clk->pts_drift = clk->pts - time;
+    clk->serial = serial;
 }
 
-static void set_clock(Clock *c, double pts, int serial)
+static void set_clock(Clock *clk, double pts, int serial)
 {
     double time = av_gettime_relative() / 1000000.0;
-    set_clock_at(c, pts, serial, time);
+    set_clock_at(clk, pts, serial, time);
 }
 
-static void set_clock_speed(Clock *c, double speed)
+static void set_clock_speed(Clock *clk, double speed)
 {
-    set_clock(c, get_clock(c), c->serial);
-    c->speed = speed;
+    set_clock(clk, get_clock(clk), clk->serial);
+    clk->speed = speed;
 }
 
-static void init_clock(Clock *c, int *queue_serial)
+static void init_clock(Clock *clk, int *queue_serial)
 {
-    c->speed = 1.0;
-    c->paused = 0;
-    c->queue_serial = queue_serial;
-    set_clock(c, NAN, -1);
+    clk->speed = 1.0;
+    clk->paused = 0;
+    clk->queue_serial = queue_serial;
+    set_clock(clk, NAN, -1);
 }
 
-static void sync_clock_to_slave(Clock *c, Clock *slave)
+static void sync_clock_to_slave(Clock *clk, Clock *slave)
 {
-    double clock = get_clock(c);
+    double clock = get_clock(clk);
     double slave_clock = get_clock(slave);
     if(!isnan(slave_clock) && (isnan(clock) || fabs(clock - slave_clock) > AV_NOSYNC_THRESHOLD))
-        set_clock(c, slave_clock, slave->serial);
+        set_clock(clk, slave_clock, slave->serial);
 }
 
 static int get_master_sync_type(PlayState *play_state) {
@@ -1857,7 +1857,7 @@ static int queue_picture(PlayState *play_state, AVFrame *src_frame, double pts, 
     Frame *vp;
 
 #if defined(DEBUG_SYNC)
-    printf("frame_type=%c pts=%0.3f\n",
+    printf("frame_type=%clk pts=%0.3f\n",
         av_get_picture_type_char(src_frame->pict_type), pts);
 #endif
 
@@ -2226,16 +2226,16 @@ static int audio_thread(void *arg)
             {
                 tb = av_buffersink_get_time_base(play_state->out_audio_filter);
 #endif
-                Frame * af = frame_queue_peek_writable(&play_state->sampq);
-                if(!af)
+                Frame * myframe = frame_queue_peek_writable(&play_state->sampq);
+                if(!myframe)
                     goto the_end;
 
-                af->pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
-                af->pos = frame->pkt_pos;
-                af->serial = play_state->auddec.pkt_serial;
-                af->duration = av_q2d(av_make_q(frame->nb_samples, frame->sample_rate));
+                myframe->pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
+                myframe->pos = frame->pkt_pos;
+                myframe->serial = play_state->auddec.pkt_serial;
+                myframe->duration = av_q2d(av_make_q(frame->nb_samples, frame->sample_rate));
 
-                av_frame_move_ref(af->frame, frame);
+                av_frame_move_ref(myframe->frame, frame);
                 frame_queue_push(&play_state->sampq);
 
 #if CONFIG_AVFILTER
@@ -2364,7 +2364,7 @@ static int video_thread(void *arg)
                 play_state->frame_last_filter_delay = 0;
             tb = av_buffersink_get_time_base(filt_out);
 #endif
-            double spf = (frame_rate.num && frame_rate.den ? av_q2d((AVRational) { frame_rate.den, frame_rate.num }) : 0);
+            double spf = frame_rate.num && frame_rate.den ? av_q2d((AVRational) { frame_rate.den, frame_rate.num }) : 0;
             pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
             ret = queue_picture(play_state, frame, pts, spf, frame->pkt_pos, play_state->viddec.pkt_serial);
             av_frame_unref(frame);
@@ -2497,7 +2497,7 @@ static int audio_decode_frame(PlayState *play_state)
 {
     int resampled_data_size;
     av_unused
-    Frame *af;
+    Frame *myframe;
 
     if(play_state->paused)
         return -1;
@@ -2513,57 +2513,57 @@ static int audio_decode_frame(PlayState *play_state)
             av_usleep(1000);
         }
 #endif
-        if(!(af = frame_queue_peek_readable(&play_state->sampq)))
+        if(!(myframe = frame_queue_peek_readable(&play_state->sampq)))
             return -1;
         frame_queue_next(&play_state->sampq);
-    } while(af->serial != play_state->audioq.serial);
+    } while(myframe->serial != play_state->audioq.serial);
 
-    int data_size = av_samples_get_buffer_size(NULL, af->frame->channels,
-        af->frame->nb_samples,
-        af->frame->format, 1);
+    int data_size = av_samples_get_buffer_size(NULL, myframe->frame->channels,
+        myframe->frame->nb_samples,
+        myframe->frame->format, 1);
 
-    int64_t dec_channel_layout = (af->frame->channel_layout && af->frame->channels == av_get_channel_layout_nb_channels(af->frame->channel_layout)) ?
-                                     af->frame->channel_layout : av_get_default_channel_layout(af->frame->channels);
-    int wanted_nb_samples = synchronize_audio(play_state, af->frame->nb_samples);
+    int64_t dec_channel_layout = (myframe->frame->channel_layout && myframe->frame->channels == av_get_channel_layout_nb_channels(myframe->frame->channel_layout)) ?
+                                     myframe->frame->channel_layout : av_get_default_channel_layout(myframe->frame->channels);
+    int wanted_nb_samples = synchronize_audio(play_state, myframe->frame->nb_samples);
 
-    if(af->frame->format != play_state->audio_src.fmt ||
+    if(myframe->frame->format != play_state->audio_src.fmt ||
         dec_channel_layout != play_state->audio_src.channel_layout ||
-        af->frame->sample_rate != play_state->audio_src.freq ||
-        (wanted_nb_samples != af->frame->nb_samples && !play_state->swr_ctx))
+        myframe->frame->sample_rate != play_state->audio_src.freq ||
+        (wanted_nb_samples != myframe->frame->nb_samples && !play_state->swr_ctx))
     {
         swr_free(&play_state->swr_ctx);
         play_state->swr_ctx = swr_alloc_set_opts(NULL,
             play_state->audio_tgt.channel_layout, play_state->audio_tgt.fmt, play_state->audio_tgt.freq,
-            dec_channel_layout, af->frame->format, af->frame->sample_rate,
+            dec_channel_layout, myframe->frame->format, myframe->frame->sample_rate,
             0, NULL);
         if(!play_state->swr_ctx || swr_init(play_state->swr_ctx) < 0)
         {
             av_log(NULL, AV_LOG_ERROR,
                 "Cannot create sample rate converter for conversion of %d Hz %s %d channels to %d Hz %s %d channels!\n",
-                af->frame->sample_rate, av_get_sample_fmt_name(af->frame->format), af->frame->channels,
+                myframe->frame->sample_rate, av_get_sample_fmt_name(myframe->frame->format), myframe->frame->channels,
                 play_state->audio_tgt.freq, av_get_sample_fmt_name(play_state->audio_tgt.fmt), play_state->audio_tgt.channels);
             swr_free(&play_state->swr_ctx);
             return -1;
         }
         play_state->audio_src.channel_layout = dec_channel_layout;
-        play_state->audio_src.channels = af->frame->channels;
-        play_state->audio_src.freq = af->frame->sample_rate;
-        play_state->audio_src.fmt = af->frame->format;
+        play_state->audio_src.channels = myframe->frame->channels;
+        play_state->audio_src.freq = myframe->frame->sample_rate;
+        play_state->audio_src.fmt = myframe->frame->format;
     }
 
     if(play_state->swr_ctx)
     {
-        int out_count = (int64_t)wanted_nb_samples * play_state->audio_tgt.freq / af->frame->sample_rate + 256;
+        int out_count = (int64_t)wanted_nb_samples * play_state->audio_tgt.freq / myframe->frame->sample_rate + 256;
         int out_size = av_samples_get_buffer_size(NULL, play_state->audio_tgt.channels, out_count, play_state->audio_tgt.fmt, 0);
         if(out_size < 0)
         {
             av_log(NULL, AV_LOG_ERROR, "av_samples_get_buffer_size() failed\n");
             return -1;
         }
-        if(wanted_nb_samples != af->frame->nb_samples)
+        if(wanted_nb_samples != myframe->frame->nb_samples)
         {
-            if(swr_set_compensation(play_state->swr_ctx, (wanted_nb_samples - af->frame->nb_samples) * play_state->audio_tgt.freq / af->frame->sample_rate,
-                wanted_nb_samples * play_state->audio_tgt.freq / af->frame->sample_rate) < 0)
+            if(swr_set_compensation(play_state->swr_ctx, (wanted_nb_samples - myframe->frame->nb_samples) * play_state->audio_tgt.freq / myframe->frame->sample_rate,
+                wanted_nb_samples * play_state->audio_tgt.freq / myframe->frame->sample_rate) < 0)
             {
                 av_log(NULL, AV_LOG_ERROR, "swr_set_compensation() failed\n");
                 return -1;
@@ -2574,7 +2574,7 @@ static int audio_decode_frame(PlayState *play_state)
             return AVERROR(ENOMEM);
 
         uint8_t ** out = &play_state->audio_buf1;
-        int len2 = swr_convert(play_state->swr_ctx, out, out_count, af->frame->extended_data, af->frame->nb_samples);
+        int len2 = swr_convert(play_state->swr_ctx, out, out_count, myframe->frame->extended_data, myframe->frame->nb_samples);
         if(len2 < 0)
         {
             av_log(NULL, AV_LOG_ERROR, "swr_convert() failed\n");
@@ -2591,17 +2591,17 @@ static int audio_decode_frame(PlayState *play_state)
     }
     else
     {
-        play_state->audio_buf = af->frame->data[0];
+        play_state->audio_buf = myframe->frame->data[0];
         resampled_data_size = data_size;
     }
 
     double audio_clock0 = play_state->audio_clock;
     /* update the audio clock with the pts */
-    if(!isnan(af->pts))
-        play_state->audio_clock = af->pts + (double)af->frame->nb_samples / af->frame->sample_rate;
+    if(!isnan(myframe->pts))
+        play_state->audio_clock = myframe->pts + (double)myframe->frame->nb_samples / myframe->frame->sample_rate;
     else
         play_state->audio_clock = NAN;
-    play_state->audio_clock_serial = af->serial;
+    play_state->audio_clock_serial = myframe->serial;
 #ifdef DEBUG
     {
         static double last_clock;
@@ -2662,10 +2662,8 @@ static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
     /* Let's assume the audio driver that play_state used by SDL has two periods. */
     if(!isnan(play_state->audio_clock))
     {
-        set_clock_at(&play_state->audclk,
-            play_state->audio_clock - (double)(2 * play_state->audio_hw_buf_size + play_state->audio_write_buf_size) / play_state->audio_tgt.bytes_per_sec, 
-            play_state->audio_clock_serial, 
-            audio_callback_time / 1000000.0);
+        double pts = play_state->audio_clock - (double)(2 * play_state->audio_hw_buf_size + play_state->audio_write_buf_size) / play_state->audio_tgt.bytes_per_sec;
+        set_clock_at(&play_state->audclk, pts, play_state->audio_clock_serial, audio_callback_time / 1000000.0);
         sync_clock_to_slave(&play_state->extclk, &play_state->audclk);
     }
 }
@@ -3891,7 +3889,7 @@ static const OptionDef options[] = {
 { "window_title", OPT_STRING | HAS_ARG, { &window_title }, "set window title", "window title" },
 #if CONFIG_AVFILTER
 { "vf", OPT_EXPERT | HAS_ARG, { .func_arg = opt_add_vfilter }, "set video filters", "filter_graph" },
-{ "af", OPT_STRING | HAS_ARG, { &afilters }, "set audio filters", "filter_graph" },
+{ "myframe", OPT_STRING | HAS_ARG, { &afilters }, "set audio filters", "filter_graph" },
 #endif
 { "rdftspeed", OPT_INT | HAS_ARG | OPT_AUDIO | OPT_EXPERT, { &rdftspeed }, "rdft speed", "msecs" },
 { "showmode", HAS_ARG, { .func_arg = opt_show_mode }, "select show mode (0 = video, 1 = waves, 2 = RDFT)", "mode" },
@@ -3938,7 +3936,7 @@ void show_help_default(const char *opt, const char *arg)
         "a                   cycle audio channel in the current program\n"
         "v                   cycle video channel\n"
         "t                   cycle subtitle channel in the current program\n"
-        "c                   cycle program\n"
+        "clk                   cycle program\n"
         "w                   cycle video filters or show modes\n"
         "s                   activate frame-step mode\n"
         "left/right          seek backward/forward 10 seconds\n"

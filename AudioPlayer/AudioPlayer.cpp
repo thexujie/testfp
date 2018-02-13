@@ -2,6 +2,7 @@
 #include "AudioPlayer.h"
 #include <process.h>
 #include "avobject.h"
+#include <timeapi.h>
 
 const int TIME_BASE_S = AV_TIME_BASE;
 const int TIME_BASE_MS = AV_TIME_BASE / 1000;
@@ -168,12 +169,13 @@ int AudioPlayer::generate(std::string filename, audio_context & context)
 
     avobject3<AVCodecContext, avcodec_free_context> avcodecContext(avcodec_alloc_context3(avcodec));
     avcodec_parameters_to_context(avcodecContext, avcodecParameters);
-    avcodecContext->codec_type = avcodecParameters->codec_type;
-    avcodecContext->codec_id = avcodecParameters->codec_id;
-    avcodecContext->bit_rate = avcodecParameters->bit_rate;
-    avcodecContext->sample_rate = avcodecParameters->sample_rate;
-    avcodecContext->channels = avcodecParameters->channels;
-    avcodecContext->sample_fmt = (AVSampleFormat)avcodecParameters->format;
+    //avcodecContext->codec_type = avcodecParameters->codec_type;
+    //avcodecContext->codec_id = avcodecParameters->codec_id;
+    //avcodecContext->bit_rate = avcodecParameters->bit_rate;
+    //avcodecContext->sample_rate = avcodecParameters->sample_rate;
+    //avcodecContext->channels = avcodecParameters->channels;
+    //avcodecContext->sample_fmt = (AVSampleFormat)avcodecParameters->format;
+
     //avcodecContext->sample_fmt = (AVSampleFormat)avcodecParameters->format;
     //avcodecContext->channels = avcodecParameters->channels;
     //avcodecContext->sample_rate = avcodecParameters->sample_rate;
