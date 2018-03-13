@@ -63,9 +63,6 @@ FpState FFmpegVideoDecoder::SetOutputFormat(VideoFormat format)
     std::unique_lock<std::mutex> lock(_mtx);
     _outputFormat = format;
     ++_sessionIndex;
-    for (auto iter = _buffers.begin(); iter != _buffers.end(); ++iter)
-        _sessionFrames.push_front(iter->avframe);
-    _buffers.clear();
     _condDecoder.notify_all();
     return FpStateOK;
 }
@@ -434,7 +431,7 @@ FpState FFmpegVideoDecoder::initDecoder()
 
 					CodecDeviceDesc deviceDesc = _hwAccel->GetCodecDeviceDesc();
 					std::vector<CodecDesc> codecDescs = _hwAccel->GetCodecDescs(codecFormat.codecId);
-					printf("use hwAccel [%s]", deviceDesc.deviceName.c_str());
+					printf("use hwAccel [%s]\n", deviceDesc.deviceDescription.c_str());
                 }
             }
         }
@@ -534,13 +531,6 @@ FpState FFmpegVideoDecoder::scaleFrame(std::shared_ptr<AVFrame> avframe, VideoBu
 
 FpState FFmpegVideoDecoder::decodeFrame(std::shared_ptr<AVFrame> & frame)
 {
-    if(!_sessionFrames.empty())
-    {
-        frame = _sessionFrames.back();
-        _sessionFrames.pop_back();
-        return FpStateOK;
-    }
-
     //int64_t tsStart = av_gettime_relative();
     int32_t averr = 0;
     frame.reset(av_frame_alloc(), [](AVFrame * ptr) { av_frame_free(&ptr); });
@@ -578,11 +568,19 @@ FpState FFmpegVideoDecoder::decodeFrame(std::shared_ptr<AVFrame> & frame)
             }
 			else
 			{
+                //通常是因为切换、重置编码器导致需要回退至第一个关键帧开始重新解码导致
 				if(frame->pts <= _dts)
 				{
-					printf("discard frame %lld\n", frame->pts);
+                    ++_numFramesDiscard;
 					continue;
 				}
+                else if(_numFramesDiscard > 0)
+                {
+                    printf("discard %lld frames\n", _numFramesDiscard);
+                    _numFramesDiscardTotal += _numFramesDiscard;
+                    _numFramesDiscard = 0;
+                }
+                else{}
 				break;
 			}
         }
@@ -690,7 +688,6 @@ void FFmpegVideoDecoder::decoderThread()
         {
             //重建资源
             sessionIndex = _sessionIndex;
-            _sessionFrames.push_front(buffer.avframe);
             buffer = {};
             lock.unlock();
             _sws.reset();

@@ -243,7 +243,7 @@ CodecDeviceDesc D3D9SurfaceVideoPlayerDefaultDevice::GetCodecDeviceDesc() const
 	D3D9DeviceDesc d3d9Desc = GetDesc();
 	CodecDeviceDesc desc = {};
 	desc.deviceIdentifier = GUID2String(d3d9Desc.deviceIdentifier);
-	desc.deviceName = d3d9Desc.displayDeviceName;
+	desc.deviceDescription = d3d9Desc.description;
 	desc.vendorId = d3d9Desc.vendorId;
 	desc.subSysId = d3d9Desc.subSysId;
 	desc.subSysId = d3d9Desc.displayHeight;
@@ -1409,6 +1409,17 @@ void D3D9SurfaceVideoPlayer::videoThread()
 			hr = renderDevice->StretchRect(surface ? surface.get() : _d3d9Surface.get(), &rcSrc, backBuffer.get(), &rcDst, D3DTEXF_LINEAR);
 			renderDevice->EndScene();
 		}
+        else
+        {
+            hr = renderDevice->BeginScene();
+            if (FAILED(hr))
+            {
+                assert(false);
+                _state = FpStateInner;
+                break;
+            }
+            renderDevice->EndScene();
+        }
         //surface 可能还在引用，需要 StretchRect 之后再释放 AVFrame。
         tsNextFrame = buffer.pts;
         buffer = {};
@@ -1460,16 +1471,16 @@ void D3D9SurfaceVideoPlayer::videoThread()
         tsLastFrame = tsNextFrame;
         tsLastPresent = get_time_hr();
 
-        //auto [bufferCount, bufferCountMax] = _stream->BufferQuality();
+        auto [bufferCount, bufferCountMax] = _stream->BufferQuality();
         //// 输出信息
-        //printf("\r[%02d:%02d:%02d.%03d] fps=%.2lf, vdiff=%.2lf, quality=%lld/%lld.",
-        //    (int32_t)_clock->pts / 3600,
-        //    (int32_t)_clock->pts % 3600 / 60,
-        //    (int32_t)_clock->pts % 60,
-        //    (int32_t)(_clock->pts * 1000) % 1000,
-        //    _fps.operator double_t(),
-        //    _masterClock ? _clock->pts - _masterClock->pts : 0,
-        //    bufferCount, bufferCountMax);
+        printf("\r[%02d:%02d:%02d.%03d] fps=%.2lf, A-V=%.2lf, quality=%lld/%lld.",
+            (int32_t)_clock->pts / 3600,
+            (int32_t)_clock->pts % 3600 / 60,
+            (int32_t)_clock->pts % 60,
+            (int32_t)(_clock->pts * 1000) % 1000,
+            _fps.operator double_t(),
+            _masterClock ? _clock->pts - _masterClock->pts : 0,
+            bufferCount, bufferCountMax);
 
         if(hr == D3DERR_DEVICELOST)
         {

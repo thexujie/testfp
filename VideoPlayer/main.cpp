@@ -334,7 +334,7 @@ int _tmain2(int argc, char* argv[])
     //pushMedia("F:\\files\\videos\\jgkld2017.mp4", audioPlayer, videoPlayer);
     //pushMedia("F:\\files\\videos\\aglpb.mkv", audioPlayer, videoPlayer);
 
-    //pushMedia("F:\\files\\videos\\bjky.mp4", audioPlayer, videoPlayer, playerDevice);
+    pushMedia("F:\\files\\videos\\bjky.mp4", audioPlayer, videoPlayer, playerDevice);
     //pushMedia("F:\\files\\videos\\SHIELD05E01.mkv", audioPlayer, videoPlayer, playerDevice);
     //pushMedia("G:\\media\\videos\\bjky.mp4", audioPlayer, videoPlayer, playerDevice);
     //pushMedia("G:/media/videos/SHIELD05E01.mkv", audioPlayer, videoPlayer, playerDevice);
@@ -349,7 +349,7 @@ int _tmain2(int argc, char* argv[])
     //pushMedia("G:/media/videos/2018/War.For.The.Planet.Of.The.Apes.mp4", audioPlayer, videoPlayer, playerDevice);
     //pushMedia("G:/media/videos/电影3/新特警判官/新特警判官.mkv", audioPlayer, videoPlayer, playerDevice);
 	//pushMedia("G:/media/videos/卧虎藏龙.mkv", audioPlayer, videoPlayer, playerDevice);
-	pushMedia("G:/BaiduNetdiskDownload/APink No No no.mp4", audioPlayer, videoPlayer, playerDevice);
+	//pushMedia("G:/BaiduNetdiskDownload/APink No No no.mp4", audioPlayer, videoPlayer, playerDevice);
 
     //audioPlayer->AddAudio(CreateAudioStream("F:\\files\\videos\\lig.mp4"));
     //audioPlayer->AddAudio(CreateAudioStream("F:\\files\\videos\\绑架者.mkv"));

@@ -68,6 +68,9 @@ private:
     std::atomic<int32_t> _flags = FpFlagNone;
 
 	std::atomic<int64_t> _dts = 0;
+    int64_t _numFramesDiscard = 0;
+    int64_t _numFramesDiscardTotal = 0;
+
     int64_t _currPacketIndex = 0;
     int64_t _index = 0;
     int32_t _maxFrames = 4;

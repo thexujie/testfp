@@ -169,7 +169,7 @@ struct VideoCodecFormat
 struct CodecDeviceDesc
 {
 	u8string deviceIdentifier;
-	u8string deviceName;
+	u8string deviceDescription;
 	uint32_t vendorId = 0;
 	uint32_t subSysId = 0;
 };
