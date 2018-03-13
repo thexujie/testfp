@@ -67,7 +67,7 @@ private:
     std::atomic<FpState> _state = FpStateOK;
     std::atomic<int32_t> _flags = FpFlagNone;
 
-	std::atomic<int64_t> _dts = 0;
+	std::atomic<int64_t> _dts = AV_NOPTS_VALUE;
     int64_t _numFramesDiscard = 0;
     int64_t _numFramesDiscardTotal = 0;
 

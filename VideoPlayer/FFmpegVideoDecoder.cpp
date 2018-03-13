@@ -157,7 +157,9 @@ FpState FFmpegVideoDecoder::NextBuffer(VideoBuffer & buffer, int64_t timeoutMS)
     {
         buffer = _buffers.front();
         _buffers.pop_front();
+        lock.unlock();
         _condDecoder.notify_one();
+        _dts = buffer.avframe->pts;
         return FpStateOK;
     }
 
@@ -177,8 +179,9 @@ FpState FFmpegVideoDecoder::NextBuffer(VideoBuffer & buffer, int64_t timeoutMS)
 
     buffer = _buffers.front();
     _buffers.pop_front();
+    lock.unlock();
     _condDecoder.notify_one();
-
+    _dts = buffer.avframe->pts;
     return FpStateOK;
 }
 
@@ -569,7 +572,7 @@ FpState FFmpegVideoDecoder::decodeFrame(std::shared_ptr<AVFrame> & frame)
 			else
 			{
                 //通常是因为切换、重置编码器导致需要回退至第一个关键帧开始重新解码导致
-				if(frame->pts <= _dts)
+				if(_dts != AV_NOPTS_VALUE && frame->pts <= _dts)
 				{
                     ++_numFramesDiscard;
 					continue;
