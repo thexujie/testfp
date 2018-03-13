@@ -150,17 +150,40 @@ FpState FFmpegAudioDecoder::NextBuffer(AudioBuffer & buffer, int64_t timeoutMS)
 FpState FFmpegAudioDecoder::decodeFrame(std::shared_ptr<AVFrame> avframe, AudioBuffer & buffer)
 {
     int32_t averr = 0;
-    uint32_t bytesPerSample = av_get_bytes_per_sample(_outputFormat.sampleFormat) * _outputFormat.chanels;
+    if(!_swr)
+    {
+        _swr.reset(swr_alloc(), [](SwrContext * ptr) { swr_free(&ptr); });
+        int64_t in_channel_layout = av_get_default_channel_layout(_inputParam.format.chanels);
+        int64_t out_channel_layout = av_get_default_channel_layout(_outputFormat.chanels);
+
+        av_opt_set_int(_swr.get(), "in_channel_layout", in_channel_layout, 0);
+        av_opt_set_int(_swr.get(), "in_sample_rate", _inputParam.format.sampleRate, 0);
+        av_opt_set_sample_fmt(_swr.get(), "in_sample_fmt", _inputParam.format.sampleFormat, 0);
+
+        av_opt_set_int(_swr.get(), "out_channel_layout", out_channel_layout, 0);
+        av_opt_set_int(_swr.get(), "out_sample_rate", _outputFormat.sampleRate, 0);
+        av_opt_set_sample_fmt(_swr.get(), "out_sample_fmt", _outputFormat.sampleFormat, 0);
+
+        averr = swr_init(_swr.get());
+        if (averr < 0)
+        {
+            _state = FpStateBadState;
+            return FpStateBadState;
+        }
+    }
+
+    uint32_t bytesPerSample = av_get_bytes_per_sample(_outputFormat.sampleFormat);
     buffer.avframe = avframe;
     buffer.numSamples = swr_get_out_samples(_swr.get(), avframe->nb_samples);
     //buffer.data = std::shared_ptr<uint8_t>(static_cast<uint8_t *>(av_malloc(buffer.numSamples * bytesPerSample)), av_free);
     //TODO buffers......
-    buffer.data = std::shared_ptr<uint8_t>(new uint8_t[buffer.numSamples * bytesPerSample], [](uint8_t * ptr) {delete[] ptr; });
+    buffer.data = std::shared_ptr<uint8_t>(new uint8_t[buffer.numSamples * bytesPerSample * _outputFormat.chanels], [](uint8_t * ptr) {delete[] ptr; });
+    buffer.pts = avframe->pts == AV_NOPTS_VALUE ? std::numeric_limits<double_t>::quiet_NaN() : avframe->pts * av_q2d(_inputParam.timeBase);
 
     int64_t numSamples = 0;
     while (numSamples < buffer.numSamples)
     {
-        uint8_t * dst = buffer.data.get() + numSamples * bytesPerSample;
+        uint8_t * dst = buffer.data.get() + numSamples * bytesPerSample * _outputFormat.chanels;
         if (!numSamples)
             averr = swr_convert(_swr.get(), &dst, buffer.numSamples - numSamples, (const uint8_t **)avframe->data, avframe->nb_samples);
         else
@@ -184,11 +207,14 @@ FpState FFmpegAudioDecoder::decodeFrame(std::shared_ptr<AVFrame> avframe, AudioB
 
 FpState FFmpegAudioDecoder::readFrame(std::shared_ptr<AVFrame> & frame)
 {
-    if(!_sessionFrames.empty())
     {
-        frame = _sessionFrames.back();
-        _sessionFrames.pop_back();
-        return FpStateOK;
+        std::unique_lock<std::mutex> lock(_mtx);
+        if (!_sessionFrames.empty())
+        {
+            frame = _sessionFrames.back();
+            _sessionFrames.pop_back();
+            return FpStateOK;
+        }
     }
 
     int32_t averr = 0;
@@ -301,83 +327,42 @@ void FFmpegAudioDecoder::decoderThread()
 
     //-------------------------------------------------------------
     int64_t sessionIndex = _sessionIndex - 1;
-    std::list<AudioBuffer> buffers;
     FpState error = FpStateOK;
     while (_state >= 0 && error >= 0)
     {
-        while (_state >= 0 && error >= 0 && buffers.size() < _minFrames && sessionIndex == _sessionIndex)
-        {
-            std::shared_ptr<AVFrame> avframe;
-            _state = readFrame(avframe);
-            if (_state == FpStatePending)
-                break;
+        std::shared_ptr<AVFrame> avframe;
+        _state = readFrame(avframe);
+        if (_state == FpStatePending)
+            break;
 
-            if (_state != 0)
-                break;
+        if (_state != 0)
+            break;
 
-            AudioBuffer buffer{};
-            _state = decodeFrame(avframe, buffer);
-            if (_state < 0)
-                break;
-
-            buffers.push_back(buffer);
-
-            //if(buffers.size() > 30)
-            {
-                std::unique_lock<std::mutex> lock(_mtx, std::try_to_lock);
-                if (_flags & FpFlagStop)
-                    break;
-
-                if (sessionIndex != _sessionIndex)
-                    break;
-
-                if (lock.owns_lock() && _buffers.size() < _minFrames)
-                {
-                    _buffers.splice(_buffers.end(), buffers);
-                    lock.unlock();
-                    _condRead.notify_all();
-                }
-            }
-        }
+        AudioBuffer buffer{};
+        _state = decodeFrame(avframe, buffer);
+        if (_state < 0)
+            break;
 
         std::unique_lock<std::mutex> lock(_mtx);
-        _condDecoder.wait(lock, [this, &sessionIndex] {return _buffers.size() < _minFrames || _state < 0 || sessionIndex != _sessionIndex || (_flags & FpFlagStop); });
+        _condDecoder.wait(lock, [this, &sessionIndex] {return _buffers.size() < _maxFrames || _state < 0 || sessionIndex != _sessionIndex || (_flags & FpFlagStop); });
         if (_flags & FpFlagStop)
             break;
 
-        //重建资源
-        if (sessionIndex != _sessionIndex)
+        if (sessionIndex == _sessionIndex)
         {
-            sessionIndex = _sessionIndex;
+            _buffers.emplace_back(buffer);
+            buffer = {};
             lock.unlock();
-
-            _swr.reset(swr_alloc(), [](SwrContext * ptr) { swr_free(&ptr); });
-            int64_t in_channel_layout = av_get_default_channel_layout(_inputParam.format.chanels);
-            int64_t out_channel_layout = av_get_default_channel_layout(_outputFormat.chanels);
-
-            av_opt_set_int(_swr.get(), "in_channel_layout", in_channel_layout, 0);
-            av_opt_set_int(_swr.get(), "in_sample_rate", _inputParam.format.sampleRate, 0);
-            av_opt_set_sample_fmt(_swr.get(), "in_sample_fmt", _inputParam.format.sampleFormat, 0);
-
-            av_opt_set_int(_swr.get(), "out_channel_layout", out_channel_layout, 0);
-            av_opt_set_int(_swr.get(), "out_sample_rate", _outputFormat.sampleRate, 0);
-            av_opt_set_sample_fmt(_swr.get(), "out_sample_fmt", _outputFormat.sampleFormat, 0);
-
-            averr = swr_init(_swr.get());
-            if (averr < 0)
-            {
-                _state = FpStateBadState;
-                return;
-            }
-
-            for (auto iter = buffers.begin(); iter != buffers.end(); ++iter)
-                _sessionFrames.push_front(iter->avframe);
-            buffers.clear();
-            continue;
+            _condRead.notify_all();
         }
-
-        _buffers.splice(_buffers.end(), buffers);
-        lock.unlock();
-        _condRead.notify_all();
+        else
+        {
+            //重建资源
+            sessionIndex = _sessionIndex;
+            _sessionFrames.push_front(buffer.avframe);
+            buffer = {};
+            lock.unlock();
+            _swr.reset();
+        }
     }
 }

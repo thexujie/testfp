@@ -26,6 +26,16 @@ extern "C"
 #include "libavutil/time.h"
 }
 
+enum CodecLevel
+{
+	CodecLevelNone,
+	CodecLevelSD,
+	CodecLevelHD,
+	CodecLevelFHD,
+	CodecLevel4K,
+	CodecLevel8K,
+};
+
 struct Clock
 {
     std::atomic<double_t> pts;
@@ -43,22 +53,23 @@ struct AudioBuffer
     int64_t index = 0;
     std::shared_ptr<AVFrame> avframe;
     std::shared_ptr<uint8_t> data;
+    double_t pts = 0;
+
+    // 每通道样本数
     int64_t numSamples = 0;
-    int64_t numSamplesRead = 0;
 };
 
 struct VideoBuffer
 {
+    static const int32_t MAX_PLANE = 8;
     int64_t index = 0;
     int64_t width = 0;
     int64_t height = 0;
     std::shared_ptr<AVFrame> avframe;
-    std::shared_ptr<uint8_t> data;
-    int64_t size = 0;
-    int64_t pitch = 0;
 
     double_t pts = 0;
-    double_t duration = 0;
+    double_t spf = 0;
+    double_t dtc = 0;
 };
 
 struct AudioFormat
@@ -85,6 +96,7 @@ struct VideoFormat
     int32_t height = 0;
     AVPixelFormat pixelFormat = AV_PIX_FMT_NONE;
 };
+
 inline bool operator==(const VideoFormat & lhs, const VideoFormat & rhs)
 {
     return lhs.width == rhs.width &&
@@ -97,7 +109,7 @@ inline bool operator!=(const VideoFormat & lhs, const VideoFormat & rhs)
     return !(lhs == rhs);
 }
 
-struct AudioDecodeParam
+struct AudioParam
 {
     AVCodecID codecId = AV_CODEC_ID_NONE;
     uint32_t codecTag = 0;
@@ -116,9 +128,11 @@ struct AudioDecodeParam
 
     int32_t extraDataSize = 0;
     std::shared_ptr<uint8_t> extraData;
+
+    AVRational timeBase = { 1, 1 };
 };
 
-struct VideoDecodeParam
+struct VideoParam
 {
     AVCodecID codecId = AV_CODEC_ID_NONE;
     uint32_t codecTag = 0;
@@ -146,6 +160,27 @@ struct VideoDecodeParam
     AVRational fps = { 0, 1 };
 };
 
+struct VideoCodecFormat
+{
+    AVCodecID codecId = AV_CODEC_ID_NONE;
+    VideoFormat format;
+};
+
+struct CodecDeviceDesc
+{
+	u8string deviceIdentifier;
+	u8string deviceName;
+	uint32_t vendorId = 0;
+	uint32_t subSysId = 0;
+};
+
+struct CodecDesc
+{
+	u8string id;
+	CodecLevel codecLevel = CodecLevelNone;
+	std::vector<AVPixelFormat> outputFormats;
+};
+
 class IPacketReader
 {
 public:
@@ -164,14 +199,14 @@ class IAudioPacketReader : public IPacketReader
 {
 public:
     virtual ~IAudioPacketReader() = default;
-    virtual AudioDecodeParam GetAudioDecodeParam() const = 0;
+    virtual AudioParam GetAudioDecodeParam() const = 0;
 };
 
 class IVideoPacketReader : public IPacketReader
 {
 public:
     virtual ~IVideoPacketReader() = default;
-    virtual VideoDecodeParam GetVideoDecodeParam() const = 0;
+    virtual VideoParam GetVideoDecodeParam() const = 0;
 };
 
 class IAudioBufferInputStream
@@ -193,6 +228,7 @@ class IVideoBufferInputStream
 public:
     virtual ~IVideoBufferInputStream() = default;
     virtual FpState SetOutputFormat(VideoFormat format) = 0;
+    virtual VideoFormat OutputFormat() const = 0;
 
     virtual FpState Ready(int64_t timeoutMS) = 0;
     virtual FpState WaitForFrames(int64_t timeoutMS) = 0;
@@ -200,6 +236,33 @@ public:
     virtual FpState PeekBuffer(VideoBuffer & buffer) = 0;
     // FpStateOK FpStateEOF FpStateTimeOut
     virtual FpState NextBuffer(VideoBuffer & buffer, int64_t timeoutMS) = 0;
+
+    virtual std::tuple<int64_t, int64_t> BufferQuality() const = 0;
+};
+
+class IVideoDecoderHWAccelContext
+{
+public:
+    virtual ~IVideoDecoderHWAccelContext() = default;
+    virtual FpState SetCodecFormat(VideoCodecFormat codecFormat) = 0;
+    virtual FpState NeedReset() const = 0;
+    virtual FpState Reset() = 0;
+    virtual void * GetFFmpegHWAccelContext() = 0;
+    virtual void * GetFFmpegHWDeviceContext() = 0;
+    virtual AVPixelFormat GetOutputPixelFormat() const = 0;
+    virtual FpState GetBuffer(std::shared_ptr<AVFrame> avframe, int32_t flags) = 0;
+};
+
+class IVideoDecoderHWAccelerator
+{
+public:
+    virtual ~IVideoDecoderHWAccelerator() = default;
+	virtual CodecDeviceDesc GetCodecDeviceDesc() const = 0;
+	virtual std::map<AVCodecID, std::vector<CodecDesc>> GetCodecDescs() const = 0;
+	virtual std::vector<CodecDesc> GetCodecDescs(AVCodecID codecId) const = 0;
+	virtual std::vector<CodecDesc> GetCodecDescs(VideoCodecFormat codecFormat) const = 0;
+    virtual std::tuple<AVHWDeviceType, std::vector<AVPixelFormat>> ChooseDevice(const std::vector<AVHWDeviceType> & hwDeviceTypes, VideoCodecFormat codecFormat) const = 0;
+    virtual std::tuple<AVHWDeviceType, std::shared_ptr<IVideoDecoderHWAccelContext>> CreateAccelerator(const std::vector<AVHWDeviceType> & hwDeviceTypes, VideoCodecFormat codecFormat) = 0;
 };
 
 class IAudioDecoder : public IAudioBufferInputStream
@@ -214,7 +277,10 @@ class IVideoDecoder : public IVideoBufferInputStream
 public:
     virtual ~IVideoDecoder() = default;
     virtual std::shared_ptr<IVideoPacketReader> Stream() const = 0;
+    virtual FpState SetVideoFormatCooperator(std::shared_ptr<IVideoDecoderHWAccelerator> formatCooperator) = 0;
+    virtual VideoFormat DecodeFormat() const = 0;
 };
+
 
 class IAudioPlayer
 {
@@ -230,17 +296,9 @@ public:
     virtual ~IVideoPlayer() = default;
 };
 
-//class IClock
-//{
-//public:
-//    virtual ~IClock() = default;
-//    virtual double_t Pts() const = 0;
-//    virtual void SetPts(double pts) = 0;
-//};
-
-
-class IVideoRender
+class IVideoRenderWindow
 {
 public:
-
+    virtual ~IVideoRenderWindow() = default;
+    virtual void * GetHandle() const = 0;
 };

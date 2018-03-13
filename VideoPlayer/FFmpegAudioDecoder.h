@@ -24,7 +24,7 @@ private:
 private:
     std::shared_ptr<IAudioPacketReader> _reader;
 
-    AudioDecodeParam _inputParam;
+    AudioParam _inputParam;
     AudioFormat _outputFormat;
 
     std::shared_ptr<AVCodecContext> _codec;
@@ -33,7 +33,8 @@ private:
     std::list<AudioBuffer> _buffers;
 
     std::atomic<int64_t> _sessionIndex = 0;
-    std::list<std::shared_ptr<AVFrame>> _sessionFrames;
+	std::list<std::shared_ptr<AVFrame>> _sessionFrames;
+	std::list<std::shared_ptr<AVPacket>> _sessionPacket;
 
     std::mutex _mtx;
     std::thread _thDecoder;
@@ -42,7 +43,6 @@ private:
     std::atomic<FpState> _state = FpStateOK;
     std::atomic<int32_t> _flags = FpFlagNone;
 
-    int32_t _minFrames = 64;
     int32_t _maxFrames = 128;
     int32_t _asyncTimeOutTime = 5000;
 };

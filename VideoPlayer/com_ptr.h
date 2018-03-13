@@ -5,16 +5,20 @@ class com_ptr
 {
 public:
     com_ptr() {}
-    com_ptr(com_ptr<UT> & another)
+    com_ptr(std::nullptr_t)
+    {
+    }
+    com_ptr(const com_ptr<UT> & another)
     {
         if(another._ptr)
         {
-            another._ptr->AddRef();
             _ptr = another._ptr;
+            if(_ptr)
+                _ptr->AddRef();
         }
     }
 
-    com_ptr(UT * ptr):_ptr(ptr){}
+    explicit com_ptr(UT * ptr):_ptr(ptr){}
     ~com_ptr()
     {
         if (_ptr)
@@ -26,14 +30,14 @@ public:
         return &_ptr;
     }
 
-    UT *& operator ->()
+    UT * operator ->() const
     {
         return _ptr;
     }
 
     operator bool() const { return !!_ptr; }
 
-    com_ptr<UT> & operator=(com_ptr<UT> & another)
+    com_ptr<UT> & operator=(const com_ptr<UT> & another)
     {
         if (_ptr)
         {
@@ -58,8 +62,30 @@ public:
         }
     }
 
+    void reset(UT * ptr)
+    {
+        if (_ptr)
+        {
+            _ptr->Release();
+            _ptr = nullptr;
+        }
+        if (ptr)
+            ptr->AddRef();
+        _ptr = ptr;
+    }
+
     UT * get() { return _ptr; }
     const UT * get() const { return _ptr; }
+
+    bool operator == (const com_ptr<UT> & another) const
+    {
+        return _ptr == another._ptr;
+    }
+
+    bool operator != (const com_ptr<UT> & another) const
+    {
+        return _ptr != another._ptr;
+    }
 
 private:
     UT * _ptr = nullptr;

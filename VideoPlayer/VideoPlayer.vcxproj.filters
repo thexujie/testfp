@@ -10,6 +10,9 @@
     <ClInclude Include="FFmpegVideoDecoder.h" />
     <ClInclude Include="FFmpegDemuxer.h" />
     <ClInclude Include="D3D9SurfaceVideoPlayer.h" />
+    <ClInclude Include="D3D9Factory.h" />
+    <ClInclude Include="VideoRenderWindow.h" />
+    <ClInclude Include="D3D9Device.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp" />
@@ -20,5 +23,8 @@
     <ClCompile Include="FFmpegVideoDecoder.cpp" />
     <ClCompile Include="FFmpegDemuxer.cpp" />
     <ClCompile Include="D3D9SurfaceVideoPlayer.cpp" />
+    <ClCompile Include="D3D9Factory.cpp" />
+    <ClCompile Include="VideoRenderWindow.cpp" />
+    <ClCompile Include="D3D9Device.cpp" />
   </ItemGroup>
 </Project>

@@ -95,13 +95,12 @@
       <AdditionalIncludeDirectories>../deps/ffmpeg/include/</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
-      <SDLCheck>true</SDLCheck>
       <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>../deps/ffmpeg/lib/x64/</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>../deps/ffmpeg/lib/x64d/</AdditionalLibraryDirectories>
       <AdditionalDependencies>version.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -160,6 +159,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="com_ptr.h" />
+    <ClInclude Include="D3D9Device.h" />
+    <ClInclude Include="D3D9Factory.h" />
     <ClInclude Include="FFmpegDemuxer.h" />
     <ClInclude Include="FFmpegVideoDecoder.h" />
     <ClInclude Include="MMAudioPlayer.h" />
@@ -168,9 +169,12 @@
     <ClInclude Include="D3D9SurfaceVideoPlayer.h" />
     <ClInclude Include="avobject.h" />
     <ClInclude Include="stdafx.h" />
+    <ClInclude Include="VideoRenderWindow.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="com_ptr.cpp" />
+    <ClCompile Include="D3D9Device.cpp" />
+    <ClCompile Include="D3D9Factory.cpp" />
     <ClCompile Include="FFmpegDemuxer.cpp" />
     <ClCompile Include="FFmpegVideoDecoder.cpp" />
     <ClCompile Include="MMAudioPlayer.cpp" />
@@ -183,6 +187,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="VideoRenderWindow.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -19,6 +19,7 @@ public:
     FpState GetDeviceDesc(com_ptr<struct IMMDevice> device, MMDeviceDesc & desc);
     FpState GetDefaultDeviceDesc(MMDeviceDesc & desc);
     FpState Start();
+    FpState Stop();
     FpState WaitForStop();
 
     std::tuple<FpState, std::shared_ptr<Clock>> AddAudio(std::shared_ptr<IAudioBufferInputStream> stream);
@@ -35,15 +36,20 @@ private:
 
     struct playItemT
     {
+        int64_t index = 0;
         std::shared_ptr<IAudioBufferInputStream> stream;
+        std::shared_ptr<Clock> clock;
+
         AudioBuffer buffer;
         FpState state = FpStateOK;
-        std::shared_ptr<Clock> clock;
+
         int64_t numSamplesRendered = 0;
+        double_t ptsRendered = 0;
     };
 
     std::mutex _mtx;
 
+    int64_t _itemIndex = 0;
     std::list<playItemT> _playItems;
 
     com_ptr<struct IMMDeviceEnumerator> _enumerator;

@@ -18,7 +18,7 @@ public:
 
 	FpState State(int32_t streamId) const;
 	std::map<int32_t, AVMediaType> GetStreamTypes() const;
-	AudioDecodeParam GetAudioFormat(int32_t streamId) const;
+	AudioParam GetAudioFormat(int32_t streamId) const;
 
 	FpState Ready(int64_t timeoutMS);
 	FpState PeekPacket(int32_t streamId, Packet & packet);
@@ -60,7 +60,7 @@ public:
 
 	std::shared_ptr<FFmpegDemuxer> Demuxer() const;
 	int32_t StreamIndex() const;
-	AudioDecodeParam GetAudioDecodeParam() const;
+	AudioParam GetAudioDecodeParam() const;
 	FpState State() const;
 
 	FpState Ready(int64_t timeoutMS);
@@ -83,7 +83,7 @@ public:
 
 	std::shared_ptr<FFmpegDemuxer> Demuxer() const;
 	int32_t StreamIndex() const;
-	VideoDecodeParam GetVideoDecodeParam() const;
+	VideoParam GetVideoDecodeParam() const;
 	FpState State() const;
 
 	FpState Ready(int64_t timeoutMS);

@@ -23,9 +23,12 @@ FpState FFmpegDemuxer::LoadFromFile(const u8string & filePath)
 	AVFormatContext * avformatContext = nullptr;
 	averr = avformat_open_input(&avformatContext, filePath.c_str(), NULL, NULL);
 	if(averr || !avformatContext)
+	{
+        print_averrr(averr);
 		return FpStateGeneric;
+	}
 
-	_avformatContext.reset(avformatContext, [](AVFormatContext * ptr) {avformat_free_context(ptr); });
+	_avformatContext.reset(avformatContext, [](AVFormatContext * ptr) {avformat_close_input(&ptr); });
 
 	//av_dump_format(m_avformatContext.get(), 0, filePath.c_str(), false);
 
@@ -110,7 +113,7 @@ std::map<int32_t, AVMediaType> FFmpegDemuxer::GetStreamTypes() const
 	return types;
 }
 
-AudioDecodeParam FFmpegDemuxer::GetAudioFormat(int32_t streamId) const
+AudioParam FFmpegDemuxer::GetAudioFormat(int32_t streamId) const
 {
 	if(!_avformatContext || streamId < 0 || streamId >= static_cast<int32_t>(_avformatContext->nb_streams))
 		return {};
@@ -118,7 +121,7 @@ AudioDecodeParam FFmpegDemuxer::GetAudioFormat(int32_t streamId) const
 	AVStream * stream = _avformatContext->streams[streamId];
 	AVCodecParameters * avcodecAudioParameters = stream->codecpar;
 
-	AudioDecodeParam param = {};
+	AudioParam param = {};
 	param.codecId = avcodecAudioParameters->codec_id;
 	param.codecTag = avcodecAudioParameters->codec_tag;
 
@@ -281,7 +284,7 @@ void FFmpegDemuxer::demuxerThread()
 			auto & packets = iter->second;
 			while(!packets.stream.expired() && packets.queue.size() < _maxPackets && _state >= 0)
 			{
-				std::shared_ptr<AVPacket> avpacket(av_packet_alloc(), av_packet_unref);
+				std::shared_ptr<AVPacket> avpacket(av_packet_alloc(), [](AVPacket * ptr) {av_packet_free(&ptr); });
 				av_init_packet(avpacket.get());
 				averr = av_read_frame(_avformatContext.get(), avpacket.get());
 				if(averr == AVERROR_EOF)
@@ -333,12 +336,45 @@ int32_t AudioPacketReaderFP::StreamIndex() const
 	return _streamIndex;
 }
 
-AudioDecodeParam AudioPacketReaderFP::GetAudioDecodeParam() const
+AudioParam AudioPacketReaderFP::GetAudioDecodeParam() const
 {
 	if(!_demuxer || _streamIndex < 0)
 		throw std::exception();
 
-	return _demuxer->GetAudioFormat(_streamIndex);
+	std::shared_ptr<AVStream> stream = _demuxer->GetAVStream(_streamIndex);
+	if (!stream)
+		return {};
+
+	AVCodecParameters * avcodecAudioParameters = stream->codecpar;
+
+	AudioParam param = {};
+	param.codecId = avcodecAudioParameters->codec_id;
+	param.codecTag = avcodecAudioParameters->codec_tag;
+
+	param.format.chanels = avcodecAudioParameters->channels;
+	param.format.sampleRate = avcodecAudioParameters->sample_rate;
+	param.format.sampleFormat = (AVSampleFormat)avcodecAudioParameters->format;
+
+	param.bitRate = avcodecAudioParameters->bit_rate;
+	param.bitsPerCodedSample = avcodecAudioParameters->bits_per_coded_sample;
+	param.bitsPerRawSample = avcodecAudioParameters->bits_per_raw_sample;
+	param.profile = avcodecAudioParameters->profile;
+	param.level = avcodecAudioParameters->level;
+
+	param.blockAlign = avcodecAudioParameters->block_align;
+	param.frameSize = avcodecAudioParameters->frame_size;
+	param.initialPadding = avcodecAudioParameters->initial_padding;
+	param.seekPreRoll = avcodecAudioParameters->seek_preroll;
+
+	if (avcodecAudioParameters->extradata && avcodecAudioParameters->extradata_size > 0)
+	{
+		param.extraData = std::shared_ptr<uint8_t>((uint8_t *)av_malloc(avcodecAudioParameters->extradata_size), av_free);
+		memcpy(param.extraData.get(), avcodecAudioParameters->extradata, avcodecAudioParameters->extradata_size);
+		param.extraDataSize = avcodecAudioParameters->extradata_size;
+	}
+
+	param.timeBase = stream->time_base;
+	return param;
 }
 
 FpState AudioPacketReaderFP::State() const
@@ -398,7 +434,7 @@ int32_t VideoPacketReaderFP::StreamIndex() const
 	return _streamIndex;
 }
 
-VideoDecodeParam VideoPacketReaderFP::GetVideoDecodeParam() const
+VideoParam VideoPacketReaderFP::GetVideoDecodeParam() const
 {
 	if(!_demuxer || _streamIndex < 0)
 		throw std::exception();
@@ -407,7 +443,7 @@ VideoDecodeParam VideoPacketReaderFP::GetVideoDecodeParam() const
 	if(!stream)
 		return {};
 
-	VideoDecodeParam decodeParam = {};
+	VideoParam decodeParam = {};
 	decodeParam.codecId = stream->codecpar->codec_id;
 	decodeParam.codecTag = stream->codecpar->codec_tag;
 
